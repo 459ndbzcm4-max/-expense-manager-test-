@@ -8,7 +8,8 @@ const assert = require('node:assert/strict');
   page.on('pageerror', e => errors.push(e.message));
   try {
     await page.goto('file://' + path.resolve('index.html'));
-    await page.locator('[data-tab="accounts"]').click();
+    await page.getByRole('button', { name: 'الحسابات', exact: true }).click();
+    await page.locator('#accounts.active').waitFor();
     await page.locator('#accountName').fill('مصروفات الاختبار');
     await page.locator('#accountType').selectOption('expense');
     await page.locator('#accountParent').selectOption('');
