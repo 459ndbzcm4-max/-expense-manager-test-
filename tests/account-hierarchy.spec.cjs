@@ -12,12 +12,23 @@ const assert = require('node:assert/strict');
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   const errors = [];
+  const browserConsole = [];
   page.on('pageerror', e => errors.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') browserConsole.push(m.text()); });
   try {
     await page.goto('http://127.0.0.1:4173');
     const accountsTab = page.locator('button[data-tab="accounts"]:visible').first();
     await accountsTab.evaluate(el => el.click());
-    await page.waitForFunction(() => document.querySelector('#accounts')?.classList.contains('active'));
+    await page.waitForTimeout(500);
+    const tabState = await page.evaluate(() => ({
+      ready: document.readyState,
+      accountsTabCount: document.querySelectorAll('button[data-tab="accounts"]').length,
+      accountsTabActive: document.querySelector('button[data-tab="accounts"]')?.classList.contains('active'),
+      accountsPanelExists: !!document.querySelector('#accounts'),
+      accountsPanelActive: document.querySelector('#accounts')?.classList.contains('active'),
+      scriptCount: document.scripts.length
+    }));
+    if (!tabState.accountsPanelActive) throw new Error('Tab activation failed; state=' + JSON.stringify({tabState, errors, browserConsole}));
     assert(await accountsTab.evaluate(el => el.classList.contains('active')), 'Accounts tab button should become active');
     assert.equal(errors.length, 0, errors.join('\\n'));
     await page.locator('#accountName').fill('مصروفات الاختبار');
