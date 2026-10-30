@@ -97,8 +97,17 @@ const assert = require('node:assert/strict');
     assert(incomeChildOption, 'Income child account should be available for income transactions');
     await page.locator('#txAccount').selectOption(incomeChildOption);
     await page.locator('#txDesc').fill('إيراد اختبار الحساب الفرعي');
+    const incomeFormBeforeSubmit = await page.locator('#txForm').evaluate(el => ({type:el.querySelector('#txType').value, wallet:el.querySelector('#txWallet').value, account:el.querySelector('#txAccount').value, description:el.querySelector('#txDesc').value, amount:el.querySelector('#txAmount').value}));
+    const dialogs = [];
+    page.once('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.dismiss(); });
     await page.locator('#txForm button[type="submit"]').click();
-    await page.locator('#txList').getByText('إيراد اختبار الحساب الفرعي', { exact: true }).waitFor();
+    await page.waitForTimeout(300);
+    const incomeStateAfterSubmit = await page.evaluate(() => {
+      const raw = localStorage.getItem('expenseManagerAdvanced.TEST.v1');
+      const data = raw ? JSON.parse(raw) : null;
+      return {txCount:data?.transactions?.length, incomeTx:data?.transactions?.filter(t=>t.description==='إيراد اختبار الحساب الفرعي'), txList:document.querySelector('#txList')?.innerText, type:document.querySelector('#txType')?.value, accountOptions:[...document.querySelectorAll('#txAccount option')].map(o=>({value:o.value,text:o.textContent}))};
+    });
+    assert(incomeStateAfterSubmit.incomeTx?.length, 'Income transaction not saved; form=' + JSON.stringify(incomeFormBeforeSubmit) + '; dialogs=' + JSON.stringify(dialogs) + '; state=' + JSON.stringify(incomeStateAfterSubmit));
     await page.locator('#txList').getByText('إيرادات الاختبار / إيرادات إضافية').waitFor();
 
     // Verify the transaction is reflected in the report and wallet balance.
