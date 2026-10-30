@@ -1,17 +1,25 @@
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
+const http = require('http');
 const assert = require('node:assert/strict');
 (async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(fs.readFileSync(path.resolve('index.html')));
+  });
+  await new Promise(resolve => server.listen(4173, '127.0.0.1', resolve));
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   try {
-    await page.goto('file://' + path.resolve('index.html'));
+    await page.goto('http://127.0.0.1:4173');
     const accountsTab = page.locator('button[data-tab="accounts"]:visible').first();
     await accountsTab.evaluate(el => el.click());
     await page.waitForFunction(() => document.querySelector('#accounts')?.classList.contains('active'));
     assert(await accountsTab.evaluate(el => el.classList.contains('active')), 'Accounts tab button should become active');
+    assert.equal(errors.length, 0, errors.join('\\n'));
     await page.locator('#accountName').fill('مصروفات الاختبار');
     await page.locator('#accountType').selectOption('expense');
     await page.locator('#accountParent').selectOption('');
@@ -47,5 +55,6 @@ const assert = require('node:assert/strict');
     process.exitCode = 1;
   } finally {
     await browser.close();
+    await new Promise(resolve => server.close(resolve));
   }
 })();
