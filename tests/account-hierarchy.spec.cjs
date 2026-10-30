@@ -8,8 +8,9 @@ const assert = require('node:assert/strict');
   page.on('pageerror', e => errors.push(e.message));
   try {
     await page.goto('file://' + path.resolve('index.html'));
-    await page.getByRole('button', { name: 'الحسابات', exact: true }).click();
-    await page.locator('#accounts.active').waitFor();
+    const accountsTab = page.locator('button[data-tab="accounts"]:visible').first();
+    await accountsTab.click();
+    await page.locator('#accounts').waitFor({ state: 'visible' });
     await page.locator('#accountName').fill('مصروفات الاختبار');
     await page.locator('#accountType').selectOption('expense');
     await page.locator('#accountParent').selectOption('');
