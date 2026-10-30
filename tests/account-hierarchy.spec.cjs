@@ -9,8 +9,9 @@ const assert = require('node:assert/strict');
   try {
     await page.goto('file://' + path.resolve('index.html'));
     const accountsTab = page.locator('button[data-tab="accounts"]:visible').first();
-    await accountsTab.click();
-    await page.locator('#accounts').waitFor({ state: 'visible' });
+    await accountsTab.evaluate(el => el.click());
+    await page.waitForFunction(() => document.querySelector('#accounts')?.classList.contains('active'));
+    assert(await accountsTab.evaluate(el => el.classList.contains('active')), 'Accounts tab button should become active');
     await page.locator('#accountName').fill('مصروفات الاختبار');
     await page.locator('#accountType').selectOption('expense');
     await page.locator('#accountParent').selectOption('');
