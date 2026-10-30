@@ -53,6 +53,20 @@ const assert = require('node:assert/strict');
     assert(!incomeParentOptions.some(x => x.includes('مصروفات الاختبار')), 'Expense parent must not appear for income subaccounts');
     assert.equal(errors.length, 0, errors.join('\n'));
 
+    // Create a matching income parent and child account.
+    await page.locator('button[data-tab="accounts"]').first().evaluate(el => el.click());
+    await page.locator('#accountName').fill('إيرادات الاختبار');
+    await page.locator('#accountType').selectOption('income');
+    await page.locator('#accountParent').selectOption('');
+    await page.locator('#accountForm button[type="submit"]').click();
+    await page.getByText('إيرادات الاختبار', { exact: true }).first().waitFor();
+
+    await page.locator('#accountName').fill('إيرادات إضافية');
+    await page.locator('#accountType').selectOption('income');
+    await page.locator('#accountParent').selectOption({ label: 'إيرادات الاختبار — إيرادات' });
+    await page.locator('#accountForm button[type="submit"]').click();
+    await page.locator('#accountList').getByText('إيرادات الاختبار / إيرادات إضافية', { exact: true }).waitFor();
+
     // Create a test wallet with enough opening balance.
     await page.locator('button[data-tab="wallets"]').first().evaluate(el => el.click());
     await page.locator('#walletName').fill('محفظة اختبار الحساب الفرعي');
@@ -76,6 +90,17 @@ const assert = require('node:assert/strict');
     await page.locator('#txList').getByText('مصروف اختبار الحساب الفرعي', { exact: true }).waitFor();
     await page.locator('#txList').getByText('مصروفات الاختبار / السكن الاختباري').waitFor();
 
+    // Record income against the income child account.
+    await page.locator('#txType').selectOption('income');
+    await page.locator('#txAmount').fill('10');
+    const incomeChildOption = await page.locator('#txAccount option').filter({ hasText: 'إيرادات الاختبار / إيرادات إضافية' }).first().getAttribute('value');
+    assert(incomeChildOption, 'Income child account should be available for income transactions');
+    await page.locator('#txAccount').selectOption(incomeChildOption);
+    await page.locator('#txDesc').fill('إيراد اختبار الحساب الفرعي');
+    await page.locator('#txForm button[type="submit"]').click();
+    await page.locator('#txList').getByText('إيراد اختبار الحساب الفرعي', { exact: true }).waitFor();
+    await page.locator('#txList').getByText('إيرادات الاختبار / إيرادات إضافية').waitFor();
+
     // Verify the transaction is reflected in the report and wallet balance.
     await page.locator('button[data-tab="reports"]').first().evaluate(el => el.click());
     await page.locator('#runReport').click();
@@ -83,8 +108,10 @@ const assert = require('node:assert/strict');
     const normalizeDigits = value => value.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫٬]/g, '.');
     const reportText = normalizeDigits(await page.locator('#accountReport').innerText());
     assert(reportText.includes('25'), 'Account report should include the 25-unit expense; actual=' + reportText);
+    assert(reportText.includes('10'), 'Account report should include the 10-unit income; actual=' + reportText);
+    await page.locator('#accountReport').getByText('إيرادات الاختبار / إيرادات إضافية', { exact: true }).waitFor();
     const walletText = normalizeDigits(await page.locator('#reportWallets').innerText());
-    assert(walletText.includes('75'), 'Wallet report should show the reduced balance of 75; actual=' + walletText);
+    assert(walletText.includes('85'), 'Wallet report should show the net balance of 85 after expense 25 and income 10; actual=' + walletText);
     assert.equal(errors.length, 0, errors.join('\n'));
 
     console.log(JSON.stringify({passed: true, checks: [
@@ -95,9 +122,12 @@ const assert = require('node:assert/strict');
       'filter parent selector by account type',
       'create wallet with opening balance',
       'record expense using child account',
+      'create income parent and child accounts',
+      'record income using child account',
+      'include income child account and amount in report',
       'show child account in transaction record',
       'include child account and amount in report',
-      'reduce wallet balance from 100 to 75',
+      'wallet balance reflects opening 100 minus expense 25 plus income 10 = 85',
       'no browser JavaScript errors'
     ]}, null, 2));
   } catch (e) {
