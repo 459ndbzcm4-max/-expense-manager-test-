@@ -80,10 +80,11 @@ const assert = require('node:assert/strict');
     await page.locator('button[data-tab="reports"]').first().evaluate(el => el.click());
     await page.locator('#runReport').click();
     await page.locator('#accountReport').getByText('مصروفات الاختبار / السكن الاختباري', { exact: true }).waitFor();
-    const reportText = await page.locator('#accountReport').innerText();
-    assert(reportText.includes('25'), 'Account report should include the 25-unit expense');
-    const walletText = await page.locator('#reportWallets').innerText();
-    assert(walletText.includes('75'), 'Wallet report should show the reduced balance of 75');
+    const normalizeDigits = value => value.replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫٬]/g, '.');
+    const reportText = normalizeDigits(await page.locator('#accountReport').innerText());
+    assert(reportText.includes('25'), 'Account report should include the 25-unit expense; actual=' + reportText);
+    const walletText = normalizeDigits(await page.locator('#reportWallets').innerText());
+    assert(walletText.includes('75'), 'Wallet report should show the reduced balance of 75; actual=' + walletText);
     assert.equal(errors.length, 0, errors.join('\n'));
 
     console.log(JSON.stringify({passed: true, checks: [
