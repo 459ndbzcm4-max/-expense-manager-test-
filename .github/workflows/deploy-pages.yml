@@ -1,7 +1,7 @@
 name: Deploy isolated test app to GitHub Pages
 on:
   push:
-    branches: [main]
+    branches: [fix/account-hierarchy-2026-10-20]
   workflow_dispatch:
 permissions:
   contents: read
