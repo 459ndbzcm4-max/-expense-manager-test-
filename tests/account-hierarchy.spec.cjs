@@ -90,8 +90,11 @@ const assert = require('node:assert/strict');
     await page.locator('#txList').getByText('مصروف اختبار الحساب الفرعي', { exact: true }).waitFor();
     await page.locator('#txList').getByText('مصروفات الاختبار / السكن الاختباري').waitFor();
 
-    // Record income against the income child account.
+    // The form resets after saving a transaction; reselect the test wallet for income.
     await page.locator('#txType').selectOption('income');
+    const incomeWalletOption = await page.locator('#txWallet option').filter({ hasText: 'محفظة اختبار الحساب الفرعي' }).first().getAttribute('value');
+    assert(incomeWalletOption, 'Test wallet should be available for income transactions');
+    await page.locator('#txWallet').selectOption(incomeWalletOption);
     await page.locator('#txAmount').fill('10');
     const incomeChildOption = await page.locator('#txAccount option').filter({ hasText: 'إيرادات الاختبار / إيرادات إضافية' }).first().getAttribute('value');
     assert(incomeChildOption, 'Income child account should be available for income transactions');
