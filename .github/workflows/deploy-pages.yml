@@ -1,5 +1,5 @@
 name: Deploy isolated test app to GitHub Pages
-# Trigger deployment after environment branch rule update.
+# Fresh deployment run avoids duplicate artifacts from the earlier retry.
 # Publish the isolated test branch through GitHub Actions.
 on:
   push:
