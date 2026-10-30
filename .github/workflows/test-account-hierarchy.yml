@@ -22,5 +22,9 @@ jobs:
         run: npm install --no-save playwright
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+      - name: Check application JavaScript syntax
+        run: |
+          node -e "const fs=require('fs');const h=fs.readFileSync('index.html','utf8');const a=h.lastIndexOf('<script>')+8;const b=h.lastIndexOf('</script>');fs.writeFileSync('/tmp/app.js',h.slice(a,b));"
+          node --check /tmp/app.js
       - name: Run browser tests
         run: node tests/account-hierarchy.spec.cjs
