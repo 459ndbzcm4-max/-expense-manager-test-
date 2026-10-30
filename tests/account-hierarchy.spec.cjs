@@ -41,7 +41,7 @@ const assert = require('node:assert/strict');
     await page.locator('#accountType').selectOption('expense');
     await page.locator('#accountParent').selectOption({ label: 'مصروفات الاختبار — مصروفات' });
     await page.locator('#accountForm button[type="submit"]').click();
-    await page.getByText('مصروفات الاختبار / السكن الاختباري', { exact: true }).waitFor();
+    await page.locator('#accountList').getByText('مصروفات الاختبار / السكن الاختباري', { exact: true }).waitFor();
 
     const parentOptions = await page.locator('#accountParent option').allTextContents();
     assert(parentOptions.some(x => x.includes('مصروفات الاختبار')));
