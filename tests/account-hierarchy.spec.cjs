@@ -78,6 +78,7 @@ const assert = require('node:assert/strict');
 
     // Verify the transaction is reflected in the report and wallet balance.
     await page.locator('button[data-tab="reports"]').first().evaluate(el => el.click());
+    await page.locator('#runReport').click();
     await page.locator('#accountReport').getByText('مصروفات الاختبار / السكن الاختباري', { exact: true }).waitFor();
     const reportText = await page.locator('#accountReport').innerText();
     assert(reportText.includes('25'), 'Account report should include the 25-unit expense');
