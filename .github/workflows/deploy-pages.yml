@@ -1,7 +1,6 @@
 name: Deploy isolated test app to GitHub Pages
+# Keep the published test site isolated from main. Manual dispatch only.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
