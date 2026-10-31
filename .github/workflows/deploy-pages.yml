@@ -1,6 +1,6 @@
 name: Deploy isolated test app to GitHub Pages
 # Fresh deployment run avoids duplicate artifacts from the earlier retry.
-# Publish the isolated test branch through GitHub Actions.
+# Publish the isolated test branch through GitHub Actions. Keep test data local.
 on:
   push:
     branches: [fix/account-hierarchy-2026-10-20]
