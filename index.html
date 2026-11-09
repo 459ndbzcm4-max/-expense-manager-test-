@@ -95,6 +95,29 @@ try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.
    changedLegacy=true;
   }
  });
+ // بعد دمج الأجزاء قد يبقى سجل مُدمج قديم بجانب عملية التسديد الأصلية نفسها.
+ // نزيل فقط التكرار المطابق تمامًا في النوع/التاريخ/المحفظة/الشخص/المبلغ ضمن فترة قصيرة،
+ // ونحتفظ بأحدث عملية، لأنها العملية الأصلية الظاهرة للمستخدم.
+ const duplicateBuckets=new Map();
+ data.transactions.filter(t=>t&&(t.type==='debt_collection'||t.type==='debt_repayment')&&t.debtSettlement).forEach(t=>{
+   const k=[t.type,t.date,t.walletId,t.description,Math.round((Number(t.amount)||0)*100)/100].join('|');
+   if(!duplicateBuckets.has(k))duplicateBuckets.set(k,[]);
+   duplicateBuckets.get(k).push(t);
+ });
+ duplicateBuckets.forEach(xs=>{
+   if(xs.length<2)return;
+   xs.sort((a,b)=>Date.parse(b.createdAt||0)-Date.parse(a.createdAt||0));
+   const keep=xs[0], remove=xs.slice(1).filter(t=>{
+     const a=Date.parse(keep.createdAt||0), b=Date.parse(t.createdAt||0);
+     return Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=10*60*1000;
+   });
+   if(remove.length){
+     const ids=new Set(remove.map(t=>t.id));
+     data.payments=data.payments.filter(p=>!ids.has(p.transactionId));
+     data.transactions=data.transactions.filter(t=>!ids.has(t.id));
+     changedLegacy=true;
+   }
+ });
  if(changedLegacy)localStorage.setItem(KEY,JSON.stringify(data));
 })();
 function save(){localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
