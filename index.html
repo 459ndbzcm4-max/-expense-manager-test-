@@ -66,15 +66,35 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fresh=()=>({version:2,wallets:[],accounts:[],transactions:[],transfers:[],debts:[],payments:[],audit:[]});
 let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={};
 try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2)data={...fresh(),...p};}}catch(e){alert('تعذر قراءة البيانات المحلية. لا تحذف بيانات المتصفح؛ جرّب استعادة النسخة الاحتياطية.');}
-// دمج عمليات السداد القديمة التي كان التطبيق قد جزأها تلقائيًا إلى معاملات متعددة لنفس ضغطة السداد.
-(function migrateSplitDebtSettlements(){
- const groups=new Map();
- data.transactions.filter(t=>t&&((t.type==='debt_collection')||(t.type==='debt_repayment'))&&t.debtId&&t.createdAt).forEach(t=>{
-  const k=[t.type,t.createdAt,t.date,t.walletId,t.description,t.note||''].join('|');
-  if(!groups.has(k))groups.set(k,[]);groups.get(k).push(t);
+// إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
+(function repairLegacySplitDebtSettlements(){
+ const candidates=data.transactions.filter(t=>t&&
+  (t.type==='debt_collection'||t.type==='debt_repayment')&&
+  (t.debtSettlement||String(t.note||'').includes('تسوية ذمة مجمعة'))
+ );
+ const buckets=new Map();
+ candidates.forEach(t=>{
+  const ms=Date.parse(t.createdAt||'');
+  const minute=Number.isFinite(ms)?Math.floor(ms/60000):String(t.createdAt||'');
+  const k=[t.type,t.date,t.walletId,t.description,minute].join('|');
+  if(!buckets.has(k))buckets.set(k,[]);
+  buckets.get(k).push(t);
  });
  let changedLegacy=false;
- groups.forEach(xs=>{if(xs.length<2)return;xs.sort((a,b)=>String(a.id).localeCompare(String(b.id)));const keep=xs[0],sum=xs.reduce((n,t)=>n+Number(t.amount||0),0);keep.amount=sum;keep.debtId='';keep.debtSettlement=true;xs.slice(1).forEach(old=>{data.payments.forEach(p=>{if(p.transactionId===old.id)p.transactionId=keep.id;});data.transactions=data.transactions.filter(t=>t.id!==old.id);changedLegacy=true;});changedLegacy=true;});
+ buckets.forEach(xs=>{
+  if(xs.length<2)return;
+  // لا ندمج إلا العمليات المتشابهة التي أنشئت في الدقيقة نفسها؛ أي ضغطة تسديد واحدة.
+  const total=xs.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const keep=[...xs].sort((a,b)=>String(a.id).localeCompare(String(b.id)))[0];
+  if(Math.abs(Number(keep.amount||0)-total)>0.000001){keep.amount=total;changedLegacy=true;}
+  keep.debtSettlement=true;
+  const removed=new Set(xs.filter(t=>t.id!==keep.id).map(t=>t.id));
+  if(removed.size){
+   data.payments.forEach(p=>{if(removed.has(p.transactionId))p.transactionId=keep.id;});
+   data.transactions=data.transactions.filter(t=>!removed.has(t.id));
+   changedLegacy=true;
+  }
+ });
  if(changedLegacy)localStorage.setItem(KEY,JSON.stringify(data));
 })();
 function save(){localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
