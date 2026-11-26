@@ -130,7 +130,19 @@ function ensureMoneyInFils(target){
  if(changedLegacy)localStorage.setItem(KEY,JSON.stringify(data));
 })();
 function save(){const journal=getJournalEntries();data.journalEntries=journal;data.journalValidation=validateJournalEntries(journal);localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
-function changed(action,details){data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||''),actor:'local_owner'});save();renderAll();}
+function changed(action,details){
+ let priorRaw;
+ try{priorRaw=localStorage.getItem(KEY);}catch(err){alert('تعذر التحقق من حالة التخزين السابقة؛ لم يتم اعتماد العملية. '+String(err&&err.message||err));return false;}
+ data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||''),actor:'local_owner'});
+ try{save();}
+ catch(err){
+  try{data=priorRaw===null?fresh():JSON.parse(priorRaw);dirty=false;}
+  catch(restoreError){alert('تعذر حفظ العملية وتعذر استعادة الحالة السابقة في الذاكرة. لا تتابع إدخال البيانات قبل استعادة نسخة احتياطية.');return false;}
+  alert('لم يتم حفظ العملية؛ أُعيدت البيانات إلى آخر حالة محفوظة. '+String(err&&err.message||err));return false;
+ }
+ try{renderAll();}catch(err){alert('حُفظت العملية بنجاح، لكن تعذر تحديث العرض. أعد تحميل صفحة التطبيق للتحقق من النتيجة. '+String(err&&err.message||err));}
+ return true;
+}
 function isFinancialActive(x){return !x||x.status!=='cancelled';}
 function cashEffect(t){if(!isFinancialActive(t))return 0;if(t.type==='income'||t.type==='debt_in'||t.type==='debt_collection')return 1;if(t.type==='expense'||t.type==='debt_out'||t.type==='debt_repayment')return -1;return 0;}
 function cancelFinancialTransaction(id,reason){
