@@ -324,10 +324,11 @@ function runLedgerSelfTests(){
   check('حفظ التقرير التاريخي قبل تاريخ الإلغاء',getDebtReport('2026-09-04')[0]?.remaining===10000,'في 4 سبتمبر كانت التسويتان مسجلتين؛ الإلغاء وقع في 5 سبتمبر');
   check('تطابق الأستاذ التاريخي قبل تاريخ الإلغاء',getBalanceSummary('2026-09-04').accounts.find(a=>a.id==='party:payable:'+payableGroupKeyTest)?.balanceMinor===10000,'الأستاذ التاريخي يعرض 10000 فلس قبل قيد العكس');
   // التأكد من أن إلغاء أصل الذمة أو حركة تسوية قديمة لا يغيّر التقارير السابقة لتاريخ الإلغاء.
-  const cancelledOrigin={id:'cancelled-origin-debt',type:'payable',person:'ذمة ملغاة تاريخيًا',amount:7000,date:'2026-10-01',status:'cancelled',cancelledAt:'2026-10-05T10:00:00Z'};
+  const cancelledOrigin={id:'cancelled-origin-debt',type:'payable',person:'ذمة ملغاة تاريخيًا',amount:7000,date:'2026-10-01',status:'cancelled',cancelledAt:'2026-10-04T22:00:00Z',cancelledDate:'2026-10-05'};
   data={version:2,moneyUnit:'fils',wallets:[],accounts:[],debts:[cancelledOrigin],transactions:[],transfers:[],payments:[],audit:[]};
   check('إظهار الذمة في التقرير السابق لتاريخ إلغائها',getDebtReport('2026-10-04')[0]?.remaining===7000,'تبقى الذمة ظاهرة تاريخيًا حتى يوم الإلغاء');
   check('استبعاد الذمة من التقرير في تاريخ إلغائها',getDebtReport('2026-10-05').length===0,'تظهر آثار الإلغاء من تاريخ 5 أكتوبر');
+  check('اعتماد تاريخ الإلغاء المحلي للذمة',getDebtReport('2026-10-04')[0]?.remaining===7000&&getDebtReport('2026-10-05').length===0,'رغم أن الطابع UTC يعود إلى 4 أكتوبر، يسري الإلغاء محليًا في 5 أكتوبر');
   const legacyCancelledDebt={id:'legacy-cancelled-settlement-debt',type:'payable',person:'تسوية قديمة ملغاة',amount:10000,date:'2026-10-01'};
   data={version:2,moneyUnit:'fils',wallets:[],accounts:[],debts:[legacyCancelledDebt],transactions:[{id:'legacy-cancelled-settlement',type:'debt_repayment',debtId:legacyCancelledDebt.id,amount:3000,date:'2026-10-03',status:'cancelled',cancelledAt:'2026-10-05T10:00:00Z'}],transfers:[],payments:[],audit:[]};
   check('احتساب التسوية القديمة قبل تاريخ إلغائها',getDebtReport('2026-10-04')[0]?.remaining===7000,'تظهر التسوية القديمة في الرصيد التاريخي قبل عكسها');
