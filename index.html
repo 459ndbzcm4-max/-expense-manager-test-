@@ -462,7 +462,8 @@ function validateDebtRelations(candidate){
    }
   }
  });
- const pairing=legacySettlementPairAnalysis(candidate.debts,candidate.payments,candidate.transactions);errors.push(...pairing.errors);\n const debtTotals=new Map();
+ const pairing=legacySettlementPairAnalysis(candidate.debts,candidate.payments,candidate.transactions);errors.push(...pairing.errors);
+ const debtTotals=new Map();
  candidate.debts.filter(d=>isFinancialActive(d)).forEach(d=>{const key=debtGroupKey(d);debtTotals.set(key,(debtTotals.get(key)||0)+Number(d.amount||0));});
  const paidTotals=new Map(),paymentTransactionIds=new Set(candidate.payments.map(p=>p.transactionId).filter(Boolean));
  candidate.payments.filter(p=>isFinancialActive(p)).forEach(p=>{const linked=p.debtId?debtById.get(p.debtId):null;const key=p.groupKey||(linked?debtGroupKey(linked):'');if(key)paidTotals.set(key,(paidTotals.get(key)||0)+Number(p.amount||0));});
