@@ -600,13 +600,27 @@ async function runBackupSelfTests(){
   check('رفض دمج سجل نشط فوق ذمة ملغاة بالمعرّف نفسه',cancellationConflictRejected,'لا يجوز أن تعيد نسخة قديمة إحياء ذمة ملغاة بصمت');
   let newRowsAllowed=true;try{validateMerge({...basePayload(),debts:[{id:'new-merge-debt',type:'receivable',person:'جديد',amount:500}]});}catch(e){newRowsAllowed=false;}
   check('السماح بإضافة سجلات جديدة غير متعارضة أثناء الدمج',newRowsAllowed,'الدمج يضيف السجلات الجديدة ولا يبدل السجلات القائمة');
+  let duplicateIncomingRejected=false;try{validateMerge({...basePayload(),wallets:[{id:'dup-merge-wallet',name:'أ'},{id:'dup-merge-wallet',name:'ب'}]});}catch(e){duplicateIncomingRejected=String(e.message).includes('معرّف مكرر');}
+  check('رفض تكرار معرّف داخل بيانات الدمج الواردة',duplicateIncomingRejected,'لا يجوز إسقاط السجل الثاني بصمت أثناء بناء الدمج');
+  data={...basePayload(),wallets:[{id:'dup-current-wallet',name:'أ'},{id:'dup-current-wallet',name:'ب'}]};
+  let duplicateCurrentRejected=false;try{validateMerge({...basePayload(),wallets:[{id:'new-merge-wallet',name:'جديد'}]});}catch(e){duplicateCurrentRejected=String(e.message).includes('معرّف مكرر');}
+  check('رفض الدمج إذا كانت البيانات المحلية نفسها تحتوي معرّفًا مكررًا',duplicateCurrentRejected,'يوقف الدمج بدل البناء فوق حالة محلية ملتبسة');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
  return results;
 }
 function validateMerge(candidate){
- const conflicts=[];backupCollections.forEach(k=>{const current=new Map(data[k].map(x=>[x.id,JSON.stringify(x)]));candidate[k].forEach(x=>{if(current.has(x.id)&&current.get(x.id)!==JSON.stringify(x))conflicts.push(k+':'+x.id);});});
+ const conflicts=[],invalidIds=[];
+ backupCollections.forEach(k=>{
+  const currentRows=data[k],incomingRows=candidate[k];
+  if(!Array.isArray(currentRows)||!Array.isArray(incomingRows)){invalidIds.push(k+':مجموعة غير صالحة');return;}
+  const collectIds=(rows,label)=>{const seen=new Set();rows.forEach((row,index)=>{const id=row&&typeof row.id==='string'?row.id.trim():'';if(!id){invalidIds.push(k+':'+label+'#'+(index+1)+' بلا معرّف');return;}if(seen.has(id))invalidIds.push(k+':'+label+' معرّف مكرر '+id);seen.add(id);});};
+  collectIds(currentRows,'الحالي');collectIds(incomingRows,'الوارد');
+  const current=new Map(currentRows.filter(x=>x&&x.id).map(x=>[x.id,JSON.stringify(x)]));
+  incomingRows.forEach(x=>{if(x&&x.id&&current.has(x.id)&&current.get(x.id)!==JSON.stringify(x))conflicts.push(k+':'+x.id);});
+ });
+ if(invalidIds.length)throw new Error('تعذر الدمج بسبب معرّفات مفقودة أو مكررة: '+invalidIds.slice(0,5).join('، '));
  if(conflicts.length)throw new Error('تعارض معرّفات بسجلات مختلفة؛ لم يتم الدمج: '+conflicts.slice(0,5).join('، '));
 }
 $('exportJson').addEventListener('click',async()=>{try{const content=await makeBackup(false);download('مدير-المصاريف-نسخة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء نسخة موثقة مع بصمة سلامة SHA-256.';}catch(err){alert(err.message);}});
