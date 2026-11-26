@@ -575,6 +575,16 @@ async function runBackupSelfTests(){
   check('رفض تسوية قديمة لمجموعة ذمم غير موجودة',!validateDebtRelations(legacyUnknown).valid,'لا تُقبل حركة تسوية يتعذر ربطها بذمة معروفة');
   const noDoubleCount=JSON.parse(JSON.stringify(rel));noDoubleCount.transactions.find(t=>t.id==='rel-pay-tx').amount=250;
   check('عدم احتساب حركة التسوية المرتبطة مرتين',validateDebtRelations(noDoubleCount).valid,'الحركة المرتبطة بسجل payment لا تُضاف مرة ثانية إلى الإجمالي');
+  const unlinkedLegacyPair=JSON.parse(JSON.stringify(rel));delete unlinkedLegacyPair.payments[0].transactionId;data=unlinkedLegacyPair;
+  const safePairing=legacySettlementPairAnalysis(unlinkedLegacyPair.debts,unlinkedLegacyPair.payments,unlinkedLegacyPair.transactions);
+  check('ربط تسوية قديمة بسجل payment عند تطابق جميع الحقول بصورة فريدة',validateDebtRelations(unlinkedLegacyPair).valid&&safePairing.pairedTransactionIds.has('rel-pay-tx'),'مطابقة المجموعة والنوع والمبلغ والمحفظة والتاريخ، دون تخمين');
+  check('منع احتساب التسوية القديمة مرتين عند غياب transactionId',groupUnpairedLegacyPaid(unlinkedLegacyPair.debts)===0,'يُحتسب payment مرة واحدة وتُستبعد الحركة المقابلة');
+  check('عدم تكرار التسوية القديمة في سجل الذمم عند وجود payment غير مرتبط',legacySettlementTransactionsForGroup({key:debtGroupKey(unlinkedLegacyPair.debts[0]),type:'receivable',debts:unlinkedLegacyPair.debts}).length===0,'يظهر سجل السداد مرة واحدة');
+  const ambiguousLegacyPair=JSON.parse(JSON.stringify(unlinkedLegacyPair));ambiguousLegacyPair.transactions.push({...ambiguousLegacyPair.transactions.find(t=>t.id==='rel-pay-tx'),id:'rel-pay-tx-duplicate'});
+  check('رفض استيراد تسويات قديمة متشابهة لا يمكن ربطها بصورة فريدة',!validateDebtRelations(ambiguousLegacyPair).valid,'لا يُختار أحد السجلات المتطابقة عشوائيًا');
+  const legacyPairStatusMismatch=JSON.parse(JSON.stringify(unlinkedLegacyPair));legacyPairStatusMismatch.payments[0].status='cancelled';
+  check('رفض اختلاف حالة إلغاء payment عن حركة التسوية القديمة المطابقة',!validateDebtRelations(legacyPairStatusMismatch).valid,'لا يسمح ببقاء أحد طرفي التسوية نشطًا دون الآخر');
+
   const legacyGroupOnly=JSON.parse(JSON.stringify(rel));legacyGroupOnly.payments=[];legacyGroupOnly.transactions=[legacyGroupOnly.transactions[0],{id:'legacy-group-only',type:'debt_collection',debtGroupKey:debtGroupKey(legacyGroupOnly.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'}];
   check('احتساب التسوية القديمة المرتبطة بالمجموعة في التقرير',groupUnpairedLegacyPaid([legacyGroupOnly.debts[0]])===250,'لا يشترط وجود debtId إذا كان مفتاح المجموعة صحيحًا');
   const legacyGroupLinked=JSON.parse(JSON.stringify(rel));legacyGroupLinked.payments[0].debtId=undefined;legacyGroupLinked.transactions.find(t=>t.id==='rel-pay-tx').debtGroupKey=debtGroupKey(legacyGroupLinked.debts[0]);
