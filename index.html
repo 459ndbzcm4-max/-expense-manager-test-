@@ -130,7 +130,7 @@ function ensureMoneyInFils(target){
  if(changedLegacy)localStorage.setItem(KEY,JSON.stringify(data));
 })();
 function save(){const journal=getJournalEntries();data.journalEntries=journal;data.journalValidation=validateJournalEntries(journal);localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
-function changed(action,details){data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||'')});if(data.audit.length>1000)data.audit=data.audit.slice(-1000);save();renderAll();}
+function changed(action,details){data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||''),actor:'local_owner'});save();renderAll();}
 function isFinancialActive(x){return !x||x.status!=='cancelled';}
 function cashEffect(t){if(!isFinancialActive(t))return 0;if(t.type==='income'||t.type==='debt_in'||t.type==='debt_collection')return 1;if(t.type==='expense'||t.type==='debt_out'||t.type==='debt_repayment')return -1;return 0;}
 function cancelFinancialTransaction(id,reason){
@@ -143,11 +143,11 @@ function cancelFinancialTransaction(id,reason){
  }
  if(!walletTimelineValid(t.walletId,{excludeTransactionId:t.id}))return {ok:false,message:'تعذر التحقق من تسلسل رصيد المحفظة.'};
  const oldValues={status:t.status||'posted',amount:t.amount,type:t.type,walletId:t.walletId,date:t.date};
- t.status='cancelled';t.cancelledAt=new Date().toISOString();t.cancelReason=reason;
+ t.status='cancelled';t.cancelledAt=new Date().toISOString();t.cancelledBy='local_owner';t.cancelReason=reason;
  linkedPayments.forEach(p=>{p.status='cancelled';p.cancelledAt=t.cancelledAt;p.cancelReason=reason;});
  if(linkedDebt&&(t.type==='debt_out'||t.type==='debt_in'))linkedDebt.status='cancelled';
  data.audit.push({id:uid(),date:t.cancelledAt,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:t.id,oldValues,newValues:{status:'cancelled',cancelReason:reason},reason});
- if(data.audit.length>5000)data.audit=data.audit.slice(-5000);
+ 
  save();renderAll();return {ok:true};
 }function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
 function walletTimelineValid(wid,extra={}){const w=data.wallets.find(x=>x.id===wid);if(!w)return false;const events=[];data.transactions.filter(t=>isFinancialActive(t)&&t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0)}));data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0)});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0)});});if(extra.transaction&&extra.transaction.walletId===wid){const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0)});}if(extra.transfer){const t=extra.transfer;if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0)});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0)});}events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.id.localeCompare(b.id));let running=Number(w.opening)||0;for(const e of events){running+=e.delta;if(running<0)return false;}return true;}
@@ -255,7 +255,7 @@ function accountsForType(type){return data.accounts.filter(a=>{const at=accountT
 function debtGroupKey(d){return String(d.type||'')+'|'+String(d.person||'').trim().toLocaleLowerCase();}
 function groupLegacyPaid(debts){const ids=new Set(debts.map(d=>d.id));return data.payments.filter(p=>isFinancialActive(p)&&ids.has(p.debtId)&&!p.groupKey).reduce((s,p)=>s+(Number(p.amount)||0),0);}
 function groupSettlementPaid(key){return data.payments.filter(p=>isFinancialActive(p)&&p.groupKey===key).reduce((s,p)=>s+(Number(p.amount)||0),0);}
-function groupDebts(items){const map=new Map();items.forEach(d=>{const key=debtGroupKey(d);if(!map.has(key))map.set(key,{key,type:d.type,person:d.person,phone:d.phone||'',debts:[],amount:0,paid:0,remaining:0});const g=map.get(key);g.debts.push(d);g.amount+=Number(d.amount)||0;if(!g.phone&&d.phone)g.phone=d.phone;});for(const g of map.values()){g.debts.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.createdAt||'').localeCompare(String(b.createdAt||'')));g.paid=groupLegacyPaid(g.debts)+groupSettlementPaid(g.key);g.remaining=Math.max(0,g.amount-g.paid);}return [...map.values()];}
+function groupDebts(items){const map=new Map();items.filter(d=>isFinancialActive(d)).forEach(d=>{const key=debtGroupKey(d);if(!map.has(key))map.set(key,{key,type:d.type,person:d.person,phone:d.phone||'',debts:[],amount:0,paid:0,remaining:0});const g=map.get(key);g.debts.push(d);g.amount+=Number(d.amount)||0;if(!g.phone&&d.phone)g.phone=d.phone;});for(const g of map.values()){g.debts.sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.createdAt||'').localeCompare(String(b.createdAt||'')));g.paid=groupLegacyPaid(g.debts)+groupSettlementPaid(g.key);g.remaining=Math.max(0,g.amount-g.paid);}return [...map.values()];}
 function fillSelect(id,items,placeholder,selected){const s=$(id);if(!s)return;const old=selected??s.value;s.innerHTML=(placeholder!==null?'<option value="">'+esc(placeholder)+'</option>':'')+items.map(x=>'<option value="'+esc(x.value)+'">'+esc(x.label)+'</option>').join('');if(items.some(x=>x.value===old))s.value=old;}
 function walletOptions(){return data.wallets.map(w=>({value:w.id,label:w.name+' — '+money(balance(w.id))}));}
 function accountOptions(){return data.accounts.map(a=>({value:a.id,label:accountLabel(a.id)}));}
