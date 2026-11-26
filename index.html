@@ -419,7 +419,7 @@ function validateDebtRelations(candidate){
    if(!t||t.debtId!==d.id)errors.push('حركة إنشاء الذمة غير مرتبطة بصورة صحيحة: '+d.id);
    else{
     if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId)errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
-    if((d.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة الذمة لا تطابق حالة حركة إنشائها: '+d.id);
+    if((d.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة الذمة لا تطابق حالة حركة إنشائها: '+d.id);if(d.cancelledDate&&t.cancelledDate&&d.cancelledDate!==t.cancelledDate)errors.push('تاريخ إلغاء الذمة لا يطابق حركة إنشائها: '+d.id);if(d.cancelledAt&&t.cancelledAt&&d.cancelledAt!==t.cancelledAt)errors.push('وقت إلغاء الذمة لا يطابق حركة إنشائها: '+d.id);
    }
   }
  });
@@ -441,7 +441,7 @@ function validateDebtRelations(candidate){
    else{
     const expected=p.type==='receivable'?'debt_collection':p.type==='payable'?'debt_repayment':null;
     if(!expected||t.type!==expected||Number(t.amount)!==Number(p.amount)||t.walletId!==p.walletId||String(t.date||'')!==String(p.date||''))errors.push('بيانات حركة التسوية لا تطابق سجل التسوية: '+p.id);
-    if((p.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة التسوية لا تطابق حالة حركتها النقدية: '+p.id);
+    if((p.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة التسوية لا تطابق حالة حركتها النقدية: '+p.id);if(p.cancelledDate&&t.cancelledDate&&p.cancelledDate!==t.cancelledDate)errors.push('تاريخ إلغاء التسوية لا يطابق حركتها النقدية: '+p.id);if(p.cancelledAt&&t.cancelledAt&&p.cancelledAt!==t.cancelledAt)errors.push('وقت إلغاء التسوية لا يطابق حركتها النقدية: '+p.id);
     if(t.debtId)errors.push('حركة تسوية مرتبطة بمعرّف إنشاء ذمة بدل مجموعة تسوية: '+p.id);
     const expectedGroup=p.groupKey||(p.debtId&&debtById.has(p.debtId)?debtGroupKey(debtById.get(p.debtId)):'');
     if(!expectedGroup||String(t.debtGroupKey||'')!==expectedGroup)errors.push('مجموعة حركة التسوية لا تطابق مجموعة الذمة: '+p.id);
@@ -543,6 +543,10 @@ async function runBackupSelfTests(){
   check('رفض نسخة تتجاوز فيها التسويات أصل الذمم',!validateDebtRelations(overpaidRel).valid,'إجمالي التسويات النشطة 1050 مقابل أصل ذمة 1000');
   const statusMismatch=JSON.parse(JSON.stringify(rel));statusMismatch.debts[0].status='cancelled';
   check('رفض عدم تطابق إلغاء الذمة مع حركة إنشائها',!validateDebtRelations(statusMismatch).valid,'يجب إلغاء سجل الذمة وحركته النقدية معًا');
+  const debtCancelDateMismatch=JSON.parse(JSON.stringify(rel));debtCancelDateMismatch.debts[0].status='cancelled';debtCancelDateMismatch.debts[0].cancelledDate='2026-02-03';debtCancelDateMismatch.transactions[0].status='cancelled';debtCancelDateMismatch.transactions[0].cancelledDate='2026-02-04';
+  check('رفض اختلاف تاريخ إلغاء الذمة وحركة إنشائها',!validateDebtRelations(debtCancelDateMismatch).valid,'يحافظ سجل الذمة والقيد على تاريخ الإلغاء المحلي نفسه');
+  const paymentCancelDateMismatch=JSON.parse(JSON.stringify(rel));paymentCancelDateMismatch.payments[0].status='cancelled';paymentCancelDateMismatch.payments[0].cancelledDate='2026-02-03';paymentCancelDateMismatch.transactions[1].status='cancelled';paymentCancelDateMismatch.transactions[1].cancelledDate='2026-02-04';
+  check('رفض اختلاف تاريخ إلغاء التسوية وحركتها النقدية',!validateDebtRelations(paymentCancelDateMismatch).valid,'يحافظ سجل التسوية والحركة النقدية على تاريخ الإلغاء نفسه');
   const wrongSettlementGroup=JSON.parse(JSON.stringify(rel));wrongSettlementGroup.transactions.find(t=>t.id==='rel-pay-tx').debtGroupKey='receivable|شخص آخر';
   check('رفض ربط حركة التسوية بمجموعة ذمم مختلفة',!validateDebtRelations(wrongSettlementGroup).valid,'يجب أن تطابق المجموعة المحاسبية في الحركة سجل التسوية');
   const legacyOnly=JSON.parse(JSON.stringify(rel));legacyOnly.payments=[];legacyOnly.transactions=legacyOnly.transactions.filter(t=>t.id==='rel-create');legacyOnly.transactions.push({id:'legacy-only-settlement',type:'debt_collection',debtGroupKey:debtGroupKey(legacyOnly.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'});
