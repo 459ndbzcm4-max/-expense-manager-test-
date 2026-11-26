@@ -116,7 +116,7 @@ function cancelFinancialTransaction(id,reason){
   const target=data.transactions.find(x=>x.id===id),debt=data.debts.find(d=>d.id===target.debtId);
   const oldValues={status:target.status||'posted',amount:target.amount,type:target.type,walletId:target.walletId,date:target.date};
   target.status='cancelled';target.cancelledAt=new Date().toISOString();target.cancelledDate=today();target.cancelledBy='local_owner';target.cancelReason=reason;
-  data.payments.filter(p=>p.transactionId===target.id&&isFinancialActive(p)).forEach(p=>{p.status='cancelled';p.cancelledAt=target.cancelledAt;p.cancelReason=reason;});
+  data.payments.filter(p=>p.transactionId===target.id&&isFinancialActive(p)).forEach(p=>{p.status='cancelled';p.cancelledAt=target.cancelledAt;p.cancelledDate=target.cancelledDate;p.cancelReason=reason;});
   if(debt&&(target.type==='debt_out'||target.type==='debt_in')){debt.status='cancelled';debt.cancelledAt=target.cancelledAt;debt.cancelledDate=target.cancelledDate;debt.cancelledBy=target.cancelledBy;debt.cancelReason=reason;}
   data.audit.push({id:uid(),date:target.cancelledAt,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:target.id,oldValues,newValues:{status:'cancelled',cancelReason:reason},reason});
   save();renderAll();return {ok:true};
