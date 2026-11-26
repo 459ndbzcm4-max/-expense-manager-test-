@@ -168,7 +168,6 @@ function getJournalEntries(){
  data.transfers.forEach(t=>entries.push({id:'transfer:'+t.id,sourceType:'transfer',sourceId:t.id,date:t.date,lines:journalLinesForTransfer(t)}));
  return entries;
 }
-function validateJournalEntries(entries=getJournalEntries()){
 function getLedgerBalances(entries=getJournalEntries()){
  const map=new Map();getLedgerAccounts().forEach(a=>map.set(a.id,{...a,debitMinor:0,creditMinor:0,balanceMinor:0}));
  entries.forEach(e=>(e.lines||[]).forEach(l=>{if(!map.has(l.accountId))map.set(l.accountId,{id:l.accountId,name:'حساب غير معروف',kind:'unknown',normalSide:'debit',debitMinor:0,creditMinor:0,balanceMinor:0});const a=map.get(l.accountId);a.debitMinor+=l.debitMinor;a.creditMinor+=l.creditMinor;}));
@@ -176,6 +175,7 @@ function getLedgerBalances(entries=getJournalEntries()){
  return [...map.values()].filter(a=>a.debitMinor||a.creditMinor);
 }
 
+function validateJournalEntries(entries=getJournalEntries()){
  const errors=[];const accounts=new Set(getLedgerAccounts().map(a=>a.id));
  entries.forEach(e=>{let debit=0,credit=0;if(!e.lines||e.lines.length<2)errors.push('قيد بلا طرفين: '+e.id);(e.lines||[]).forEach(l=>{debit+=l.debitMinor;credit+=l.creditMinor;if(!accounts.has(l.accountId))errors.push('حساب غير معروف '+l.accountId+' في '+e.id);if(!Number.isSafeInteger(l.debitMinor)||!Number.isSafeInteger(l.creditMinor)||l.debitMinor<0||l.creditMinor<0||((l.debitMinor>0)===(l.creditMinor>0)))errors.push('سطر قيد غير صالح في '+e.id);});if(debit!==credit)errors.push('القيد غير متوازن '+e.id+': '+debit+' / '+credit);});
  return {valid:errors.length===0,entryCount:entries.length,errorCount:errors.length,errors};
