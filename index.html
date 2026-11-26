@@ -321,6 +321,7 @@ function runLedgerSelfTests(){
   data.payments.find(p=>p.id==='payable-payment-2').cancelledDate='2026-09-05';
   const payableAfterCancel=groupDebts(data.debts)[0],payableAfterCancelReport=getDebtReport('2026-09-05')[0],payableAfterCancelLedger=getLedgerBalances().find(a=>a.id==='party:payable:'+payableGroupKeyTest);
   check('تطابق الذمة الدائنة بعد إلغاء التسوية الثانية',payableAfterCancel?.remaining===13000&&payableAfterCancelReport?.remaining===13000&&payableAfterCancelLedger?.balanceMinor===13000,'يعود المتبقي إلى 13000 فلس في الشاشة والتقرير والأستاذ');
+  check('عكس إلغاء السداد في رصيد المحفظة',balance('payable-wallet')===63000,'الرصيد الختامي 63000 فلس بعد إلغاء سداد 3000 فلس');
   check('حفظ التقرير التاريخي قبل تاريخ الإلغاء',getDebtReport('2026-09-04')[0]?.remaining===10000,'في 4 سبتمبر كانت التسويتان مسجلتين؛ الإلغاء وقع في 5 سبتمبر');
   check('تطابق الأستاذ التاريخي قبل تاريخ الإلغاء',getBalanceSummary('2026-09-04').accounts.find(a=>a.id==='party:payable:'+payableGroupKeyTest)?.balanceMinor===10000,'الأستاذ التاريخي يعرض 10000 فلس قبل قيد العكس');
   // التأكد من أن إلغاء أصل الذمة أو حركة تسوية قديمة لا يغيّر التقارير السابقة لتاريخ الإلغاء.
@@ -333,7 +334,7 @@ function runLedgerSelfTests(){
   data={version:2,moneyUnit:'fils',wallets:[],accounts:[],debts:[legacyCancelledDebt],transactions:[{id:'legacy-cancelled-settlement',type:'debt_repayment',debtId:legacyCancelledDebt.id,amount:3000,date:'2026-10-03',status:'cancelled',cancelledAt:'2026-10-05T10:00:00Z'}],transfers:[],payments:[],audit:[]};
   check('احتساب التسوية القديمة قبل تاريخ إلغائها',getDebtReport('2026-10-04')[0]?.remaining===7000,'تظهر التسوية القديمة في الرصيد التاريخي قبل عكسها');
   check('عكس التسوية القديمة ابتداءً من تاريخ إلغائها',getDebtReport('2026-10-05')[0]?.remaining===10000,'يعود كامل أصل الذمة بعد تاريخ الإلغاء');
-  check('عكس إلغاء السداد في رصيد المحفظة',balance('payable-wallet')===63000,'الرصيد الختامي 63000 فلس بعد إلغاء سداد 3000 فلس');
+
   // اختبار تعارض معرّف الدمج وقبول السجل المطابق تمامًا.
   data={version:2,moneyUnit:'fils',wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],audit:[]};
   const identicalBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}]};
