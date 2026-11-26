@@ -64,8 +64,8 @@ const uid=()=>Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9);
 const money=n=>new Intl.NumberFormat('ar-JO',{minimumFractionDigits:3,maximumFractionDigits:3}).format((Number(n)||0)/1000);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fresh=()=>({version:2,moneyUnit:'fils',wallets:[],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],journalValidation:null,audit:[]});
-let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={};
-try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2)data={...fresh(),...p};}}catch(e){alert('تعذر قراءة البيانات المحلية. لا تحذف بيانات المتصفح؛ جرّب استعادة النسخة الاحتياطية.');}
+let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null;
+try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2){data={...fresh(),...p};moneyMigrationUnit=Object.prototype.hasOwnProperty.call(p,'moneyUnit')?p.moneyUnit:null;moneyMigrationPending=moneyMigrationUnit!=='fils';}}}catch(e){alert('تعذر قراءة البيانات المحلية. لا تحذف بيانات المتصفح؛ جرّب استعادة النسخة الاحتياطية.');}
 // توحيد التخزين النقدي بوحدات الفلس الصحيحة (1 دينار = 1000 فلس).
 function ensureMoneyInFils(target){
  if(!target||target.moneyUnit==='fils')return target;
@@ -73,7 +73,7 @@ function ensureMoneyInFils(target){
  fields.forEach(([collection,field])=>{if(Array.isArray(target[collection]))target[collection].forEach(item=>{if(item&&item[field]!==undefined&&item[field]!==null){const value=Number(item[field]);if(Number.isFinite(value))item[field]=Math.round(value*1000);}});});
  target.moneyUnit='fils';return target;
 }
-(function migrateMoneyToFils(){if(data.moneyUnit==='fils')return;ensureMoneyInFils(data);localStorage.setItem(KEY,JSON.stringify(data));})();
+// لا تُحوّل بيانات المستخدم عند فتح التطبيق؛ يتطلب ترحيل الوحدات موافقة صريحة ونسخة أصلية محفوظة.
 
 // إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
 // لا تُنفّذ معالجة تلقائية لسجلات التسويات القديمة؛ تبقى بيانات المستخدم كما هي حتى اعتماد أداة إصلاح صريحة.
@@ -508,6 +508,45 @@ window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.return
 try{save();}catch(err){console.error('تعذر إعادة بناء سجل القيود المحاسبية:',err);}
 $('runLedgerTests').addEventListener('click',()=>{const results=runLedgerSelfTests(),passed=results.filter(x=>x.passed).length;const box=$('ledgerTestResults');box.innerHTML='<div class="item"><strong>نتيجة الاختبار: '+passed+' / '+results.length+' ناجح</strong></div>'+results.map(x=>'<div class="item">'+(x.passed?'✓':'✕')+' '+esc(x.name)+(x.detail?'<div class="muted">'+esc(x.detail)+'</div>':'')+'</div>').join('');});
 $('runBackupTests').addEventListener('click',async()=>{const box=$('backupTestResults');box.textContent='جارٍ فحص النسخ الاحتياطي محليًا…';const results=await runBackupSelfTests(),passed=results.filter(x=>x.passed).length;box.innerHTML='<div class="item"><strong>نتيجة الاختبار: '+passed+' / '+results.length+' ناجح</strong></div>'+results.map(x=>'<div class="item">'+(x.passed?'✓':'✕')+' '+esc(x.name)+(x.detail?'<div class="muted">'+esc(x.detail)+'</div>':'')+'</div>').join('');});
-renderAll();
+function showMoneyMigrationGate(){
+ if(!moneyMigrationPending)return true;
+ let gate=document.getElementById('moneyMigrationGate');
+ if(!gate){
+  gate=document.createElement('div');gate.id='moneyMigrationGate';
+  gate.style.cssText='position:fixed;inset:0;z-index:99999;background:#f3f6fa;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto';
+  gate.innerHTML='<div style="max-width:560px;background:#fff;border:1px solid #dce3ec;border-radius:16px;padding:20px;box-shadow:0 8px 32px #0002;font-family:Arial,Tahoma,sans-serif;line-height:1.8;color:#182230"><h2 style="margin-top:0">يلزم اعتماد تحويل وحدة المبالغ</h2><p>تحتوي البيانات المحلية على سجلات لا تحمل علامة تؤكد أن المبالغ محفوظة بالفلس. التحويل المتوقع يفترض أن الأرقام الحالية بالدينار، ويحوّل كل مبلغ إلى الفلس (× 1000).</p><p><strong>لن يُجرى أي تعديل قبل موافقتك.</strong> عند الموافقة، تُحفظ نسخة أصلية مستقلة داخل تخزين المتصفح قبل التحويل. ويُنصح بتنزيل نسخة احتياطية خارجية أيضًا.</p><p id="moneyMigrationMessage" style="color:#b42318"></p><div style="display:flex;gap:8px;flex-wrap:wrap"><button id="approveMoneyMigration" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">حفظ نسخة أصلية واعتماد التحويل</button><button id="downloadMoneyOriginal" style="border:1px solid #cbd5e1;border-radius:8px;padding:11px 16px;background:#fff;color:#182230;font-size:15px">تنزيل البيانات الأصلية</button></div><p style="font-size:12px;color:#667085">لن يمكن استخدام التطبيق قبل حسم وحدة المبالغ، لتجنب عرض أرصدة خاطئة.</p></div>';
+  document.body.appendChild(gate);
+  gate.querySelector('#approveMoneyMigration').addEventListener('click',approveMoneyMigration);
+  gate.querySelector('#downloadMoneyOriginal').addEventListener('click',downloadOriginalMoneyData);
+ }
+ document.querySelector('.wrap').style.display='none';
+ gate.style.display='flex';
+ return false;
+}
+function downloadOriginalMoneyData(){
+ try{const raw=localStorage.getItem(KEY);if(!raw)throw new Error('لا توجد بيانات محفوظة لتنزيلها.');const blob=new Blob([raw],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-قبل-تحويل-وحدة-المبالغ-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+ catch(err){const m=document.getElementById('moneyMigrationMessage');if(m)m.textContent='تعذر تنزيل البيانات الأصلية: '+String(err&&err.message||err);}
+}
+function approveMoneyMigration(){
+ const msg=document.getElementById('moneyMigrationMessage');
+ if(moneyMigrationUnit!==null&&moneyMigrationUnit!=='JOD'){if(msg)msg.textContent='وحدة المبالغ المسجلة غير معروفة؛ أوقفنا التحويل الآلي حفاظًا على البيانات. يلزم فحص النسخة الأصلية يدويًا.';return;}
+ let priorRaw,snapshotKey;
+ try{
+  priorRaw=localStorage.getItem(KEY);
+  if(!priorRaw)throw new Error('لم نعثر على سجل البيانات الأصلي.');
+  snapshotKey=KEY+'.pre-money-migration.'+Date.now();
+  localStorage.setItem(snapshotKey,priorRaw);
+  if(localStorage.getItem(snapshotKey)!==priorRaw)throw new Error('تعذر التحقق من حفظ النسخة الأصلية.');
+  const previous=data;
+  try{ensureMoneyInFils(data);save();}
+  catch(err){data=previous;try{localStorage.setItem(KEY,priorRaw);}catch(restoreErr){throw new Error('فشل التحويل وفشل إرجاع البيانات الأصلية. احتفظ بالنسخة التي نزلتها. '+String(restoreErr&&restoreErr.message||restoreErr));}throw err;}
+  moneyMigrationPending=false;
+  const gate=document.getElementById('moneyMigrationGate');if(gate)gate.remove();
+  document.querySelector('.wrap').style.display='';
+  renderAll();
+  alert('تم التحويل بعد حفظ نسخة أصلية داخل المتصفح. احتفظ أيضًا بملف البيانات الأصلي خارج المتصفح.');
+ }catch(err){if(msg)msg.textContent='لم يتم اعتماد التحويل: '+String(err&&err.message||err);}
+}
+if(!showMoneyMigrationGate()){}else renderAll();
 })();
 </script></body></html>
