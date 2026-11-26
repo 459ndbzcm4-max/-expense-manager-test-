@@ -434,6 +434,7 @@ function validateDebtRelations(candidate){
   if(p.debtId&&p.groupKey&&debtGroupKey(debtById.get(p.debtId))!==p.groupKey)errors.push('تعارض مرجع الذمة ومجموعة التسوية: '+p.id);
   if(!relatedDebt)errors.push('تعذر تحديد الذمة المرتبطة بالتسوية: '+p.id);
   else if(p.type!==relatedDebt.type)errors.push('نوع التسوية لا يطابق نوع الذمة: '+p.id);
+  if(p.debtId&&relatedDebt&&relatedDebt.status==='cancelled'&&isFinancialActive(p))errors.push('تسوية نشطة مرتبطة بذمة ملغاة: '+p.id);
   if(p.transactionId){
    if(paymentTxIds.has(p.transactionId))errors.push('حركة نقدية مرتبطة بأكثر من تسوية: '+p.transactionId);
    paymentTxIds.add(p.transactionId);
@@ -459,6 +460,7 @@ function validateDebtRelations(candidate){
   if(!key||!groupKeys.has(key))errors.push('حركة تسوية قديمة لا ترتبط بمجموعة ذمم معروفة: '+t.id);
   else if(!key.startsWith(expected+'|'))errors.push('اتجاه حركة التسوية القديمة لا يطابق نوع الذمة: '+t.id);
   if(t.debtId&&(!linked||debtGroupKey(linked)!==key))errors.push('مرجع الذمة في حركة التسوية القديمة غير متطابق: '+t.id);
+  if(t.debtId&&linked&&linked.status==='cancelled'&&isFinancialActive(t))errors.push('حركة تسوية قديمة نشطة مرتبطة بذمة ملغاة: '+t.id);
   if(!Number.isSafeInteger(Number(t.amount))||Number(t.amount)<=0)errors.push('مبلغ حركة التسوية القديمة غير صالح: '+t.id);
   if(key&&Number.isSafeInteger(Number(t.amount))&&Number(t.amount)>0)paidTotals.set(key,(paidTotals.get(key)||0)+Number(t.amount));
  });
@@ -548,6 +550,10 @@ async function runBackupSelfTests(){
   check('رفض اختلاف تاريخ إلغاء الذمة وحركة إنشائها',!validateDebtRelations(debtCancelDateMismatch).valid,'يحافظ سجل الذمة والقيد على تاريخ الإلغاء المحلي نفسه');
   const paymentCancelDateMismatch=JSON.parse(JSON.stringify(rel));paymentCancelDateMismatch.payments[0].status='cancelled';paymentCancelDateMismatch.payments[0].cancelledDate='2026-02-03';paymentCancelDateMismatch.transactions[1].status='cancelled';paymentCancelDateMismatch.transactions[1].cancelledDate='2026-02-04';
   check('رفض اختلاف تاريخ إلغاء التسوية وحركتها النقدية',!validateDebtRelations(paymentCancelDateMismatch).valid,'يحافظ سجل التسوية والحركة النقدية على تاريخ الإلغاء نفسه');
+  const activePaymentOnCancelledDebt=JSON.parse(JSON.stringify(rel));activePaymentOnCancelledDebt.debts.push({id:'same-person-active-debt',type:'receivable',person:'اختبار',amount:1000,date:'2026-01-03',walletId:'rel-wallet',transactionId:'second-create'});activePaymentOnCancelledDebt.transactions.push({id:'second-create',type:'debt_out',debtId:'same-person-active-debt',amount:1000,walletId:'rel-wallet',date:'2026-01-03'});activePaymentOnCancelledDebt.debts[0].status='cancelled';activePaymentOnCancelledDebt.debts[0].cancelledDate='2026-01-04';activePaymentOnCancelledDebt.transactions[0].status='cancelled';activePaymentOnCancelledDebt.transactions[0].cancelledDate='2026-01-04';
+  check('رفض تسوية نشطة مرتبطة بذمة ملغاة ولو بقيت ذمة أخرى للشخص',!validateDebtRelations(activePaymentOnCancelledDebt).valid,'لا تُحوّل تسوية الذمة الملغاة ضمنيًا إلى ذمة أخرى للشخص نفسه');
+  const activeLegacyOnCancelledDebt=JSON.parse(JSON.stringify(activePaymentOnCancelledDebt));activeLegacyOnCancelledDebt.payments=[];activeLegacyOnCancelledDebt.transactions.push({id:'legacy-on-cancelled',type:'debt_collection',debtId:'rel-debt',debtGroupKey:debtGroupKey(activeLegacyOnCancelledDebt.debts[0]),amount:100,walletId:'rel-wallet',date:'2026-01-04'});
+  check('رفض حركة تسوية قديمة نشطة تشير مباشرة إلى ذمة ملغاة',!validateDebtRelations(activeLegacyOnCancelledDebt).valid,'المرجع الفردي لا يبقى نشطًا بعد إلغاء الذمة');
   const wrongSettlementGroup=JSON.parse(JSON.stringify(rel));wrongSettlementGroup.transactions.find(t=>t.id==='rel-pay-tx').debtGroupKey='receivable|شخص آخر';
   check('رفض ربط حركة التسوية بمجموعة ذمم مختلفة',!validateDebtRelations(wrongSettlementGroup).valid,'يجب أن تطابق المجموعة المحاسبية في الحركة سجل التسوية');
   const legacyOnly=JSON.parse(JSON.stringify(rel));legacyOnly.payments=[];legacyOnly.transactions=legacyOnly.transactions.filter(t=>t.id==='rel-create');legacyOnly.transactions.push({id:'legacy-only-settlement',type:'debt_collection',debtGroupKey:debtGroupKey(legacyOnly.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'});
