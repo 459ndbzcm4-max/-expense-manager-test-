@@ -356,6 +356,43 @@ async function makeBackup(encrypted){
  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(serialized));
  return JSON.stringify({format:BACKUP_FORMAT, schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher)),createdAt},null,2);
 }
+function validateDebtRelations(candidate){
+ const errors=[],walletIds=new Set(candidate.wallets.map(w=>w.id)),txById=new Map(candidate.transactions.map(t=>[t.id,t])),debtById=new Map(candidate.debts.map(d=>[d.id,d]));
+ const groupKeys=new Set(candidate.debts.map(debtGroupKey));
+ const validAmount=n=>Number.isSafeInteger(Number(n))&&Number(n)>0;
+ candidate.debts.forEach(d=>{
+  if(!['receivable','payable'].includes(d.type))errors.push('نوع ذمة غير معروف: '+d.id);
+  if(!String(d.person||'').trim())errors.push('اسم صاحب الذمة مفقود: '+d.id);
+  if(!validAmount(d.amount))errors.push('مبلغ الذمة غير صالح: '+d.id);
+  if(d.walletId&&!walletIds.has(d.walletId))errors.push('محفظة الذمة غير موجودة: '+d.id);
+  if(d.transactionId){
+   const t=txById.get(d.transactionId);
+   if(!t||t.debtId!==d.id)errors.push('حركة إنشاء الذمة غير مرتبطة بصورة صحيحة: '+d.id);
+   else if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId)errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
+  }
+ });
+ const paymentTxIds=new Set();
+ candidate.payments.forEach(p=>{
+  if(!validAmount(p.amount))errors.push('مبلغ تسوية غير صالح: '+p.id);
+  if(p.walletId&&!walletIds.has(p.walletId))errors.push('محفظة التسوية غير موجودة: '+p.id);
+  if(p.debtId&&!debtById.has(p.debtId))errors.push('الذمة المرتبطة بالتسوية غير موجودة: '+p.id);
+  if(p.groupKey&&!groupKeys.has(p.groupKey))errors.push('مجموعة الذمم المرتبطة بالتسوية غير موجودة: '+p.id);
+  if(p.debtId&&p.groupKey&&debtGroupKey(debtById.get(p.debtId))!==p.groupKey)errors.push('تعارض مرجع الذمة ومجموعة التسوية: '+p.id);
+  if(p.transactionId){
+   if(paymentTxIds.has(p.transactionId))errors.push('حركة نقدية مرتبطة بأكثر من تسوية: '+p.transactionId);
+   paymentTxIds.add(p.transactionId);
+   const t=txById.get(p.transactionId);
+   if(!t)errors.push('حركة التسوية النقدية غير موجودة: '+p.id);
+   else{
+    const expected=p.type==='receivable'?'debt_collection':p.type==='payable'?'debt_repayment':null;
+    if(!expected||t.type!==expected||Number(t.amount)!==Number(p.amount)||t.walletId!==p.walletId||String(t.date||'')!==String(p.date||''))errors.push('بيانات حركة التسوية لا تطابق سجل التسوية: '+p.id);
+    if((p.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة التسوية لا تطابق حالة حركتها النقدية: '+p.id);
+    if(t.debtId)errors.push('حركة تسوية مرتبطة بمعرّف إنشاء ذمة بدل مجموعة تسوية: '+p.id);
+   }
+  }
+ });
+ return {valid:errors.length===0,errors};
+}
 async function parseBackupFile(file){
  if(file.size>MAX_BACKUP_BYTES)throw new Error('حجم الملف يتجاوز الحد المسموح (20 ميغابايت).');
  let obj=JSON.parse(await file.text());
@@ -375,7 +412,7 @@ async function parseBackupFile(file){
  const legacyWithoutUnit=!Object.prototype.hasOwnProperty.call(obj,'moneyUnit');const candidate={...fresh(),...obj};if(legacyWithoutUnit)candidate.moneyUnit='JOD';ensureMoneyInFils(candidate);
  backupCollections.forEach(k=>{if(!Array.isArray(candidate[k]))candidate[k]=[];});
  for(const k of backupCollections){const ids=new Set();for(const row of candidate[k]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل غير صالح ضمن '+k);if(ids.has(row.id))throw new Error('معرّف مكرر ضمن '+k+': '+row.id);ids.add(row.id);}}
- const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);} }finally{data=previous;}
+ const relations=validateDebtRelations(candidate);if(!relations.valid)throw new Error('علاقات الذمم والتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);} }finally{data=previous;}
  return candidate;
 }
 async function runBackupSelfTests(){
@@ -439,7 +476,7 @@ let importMode='replace';$('importFile').addEventListener('change',async e=>{con
  if(importMode==='merge'){
   validateMerge(candidate);
   const merged=JSON.parse(JSON.stringify(data));backupCollections.forEach(k=>{const ids=new Set(merged[k].map(x=>x.id));candidate[k].forEach(x=>{if(!ids.has(x.id)){merged[k].push(x);ids.add(x.id);}});});
-  const prior=data;data=merged;try{const v=validateJournalEntries(getJournalEntries());if(!v.valid)throw new Error('الدمج ينتج قيودًا غير متوازنة.');for(const w of data.wallets)if(!walletTimelineValid(w.id))throw new Error('الدمج يؤدي إلى رصيد نقدي سالب أو تسلسل غير صالح.');}finally{data=prior;}
+  const relations=validateDebtRelations(merged);if(!relations.valid)throw new Error('الدمج ينتج علاقات ذمم وتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const prior=data;data=merged;try{const v=validateJournalEntries(getJournalEntries());if(!v.valid)throw new Error('الدمج ينتج قيودًا غير متوازنة.');for(const w of data.wallets)if(!walletTimelineValid(w.id))throw new Error('الدمج يؤدي إلى رصيد نقدي سالب أو تسلسل غير صالح.');}finally{data=prior;}
   if(!confirm(summary+'\n\nسيُضاف فقط ما لا يتعارض من السجلات. هل تعتمد الدمج؟'))return;
   data=merged;save();renderAll();$('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي.';
  }else{
