@@ -215,6 +215,12 @@ function runLedgerSelfTests(){
   check('قبول تسوية تساوي الرصيد المتبقي',canSettleDebt(sampleGroup,3000),'تسوية كاملة');
   check('رفض تسوية تتجاوز الرصيد المتبقي',!canSettleDebt(sampleGroup,3001),'المتبقي 3000 فلس فقط');
   check('رفض مبلغ تسوية صفري أو كسري',!canSettleDebt(sampleGroup,0)&&!canSettleDebt(sampleGroup,1.5),'المبلغ يجب أن يكون عدد فلس صحيحًا موجبًا');
+  check('السماح بتسوية جزئية صحيحة',canSettleDebt(sampleGroup,1250),'تسوية جزئية ضمن الرصيد المتبقي');
+  check('رفض تسوية بلا ذمة محددة',!canSettleDebt(null,100),'لا توجد مجموعة ذمم صالحة');
+  data={version:2,moneyUnit:'fils',wallets:[{id:'zero-wallet',name:'اختبار الصفر',opening:10000}],accounts:[],debts:[],transactions:[],transfers:[],payments:[],audit:[]};
+  check('السماح بعملية تخفض الرصيد إلى صفر تمامًا',walletTimelineValid('zero-wallet',{transaction:{id:'zero-expense',type:'expense',amount:10000,walletId:'zero-wallet',date:'2026-03-01',createdAt:'2026-03-01T10:00:00Z'}}),'الرصيد صفر وليس سالبًا');
+  check('رفض تحويل يتجاوز رصيد المحفظة المرسلة',!walletTimelineValid('zero-wallet',{transfer:{id:'over-transfer',from:'zero-wallet',to:'another-wallet',amount:10001,date:'2026-03-01',createdAt:'2026-03-01T10:00:00Z'}}),'المبلغ أكبر من الرصيد المتاح');
+  check('الحفاظ على القيود المالية دون زر حذف فعلي',!String(txHtml({id:'posted',type:'income',amount:1000,walletId:'zero-wallet',accountId:'',description:'اختبار',date:'2026-03-01'},true)).includes('data-delete-tx'),'السجلات المعتمدة لا تُمحى من الواجهة');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
