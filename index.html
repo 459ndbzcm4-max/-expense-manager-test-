@@ -495,7 +495,7 @@ async function parseBackupFile(file){
  for(const k of backupCollections){if(!Array.isArray(candidate[k]))throw new Error('النسخة الحالية ناقصة أو لا تحتوي مجموعة البيانات المطلوبة: '+k);}
  validateBackupFinancialRecords(candidate);ensureMoneyInFils(candidate);
  for(const k of backupCollections){const ids=new Set();for(const row of candidate[k]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل غير صالح ضمن '+k);if(ids.has(row.id))throw new Error('معرّف مكرر ضمن '+k+': '+row.id);ids.add(row.id);}}
- const relations=validateDebtRelations(candidate);if(!relations.valid)throw new Error('علاقات الذمم والتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);} }finally{data=previous;}
+ const relations=validateDebtRelations(candidate);if(!relations.valid)throw new Error('علاقات الذمم والتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);}candidate.journalEntries=journal;candidate.journalValidation=validation;}finally{data=previous;}
  return candidate;
 }
 async function runBackupSelfTests(){
@@ -515,6 +515,10 @@ async function runBackupSelfTests(){
   const validEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt:'2026-11-26T10:00:00.000Z',checksum,payload};
   let valid=false;try{const x=await parseBackupFile(fileFor(validEnvelope));valid=x.moneyUnit==='fils'&&Array.isArray(x.wallets);}catch(e){}
   check('قبول نسخة JSON ذات بصمة صحيحة',valid,'فحص البصمة وبنية النسخة');
+  const forgedJournalPayload=basePayload();forgedJournalPayload.journalEntries=[{id:'forged-journal',lines:[]}];forgedJournalPayload.journalValidation={valid:true,entryCount:999,errorCount:0,errors:[]};
+  const forgedJournalEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(forgedJournalPayload)),payload:forgedJournalPayload};
+  let journalCacheRebuilt=false;try{const x=await parseBackupFile(fileFor(forgedJournalEnvelope));journalCacheRebuilt=x.journalEntries.length===0&&x.journalValidation.valid&&x.journalValidation.entryCount===0;}catch(e){}
+  check('إعادة اشتقاق سجل الأستاذ بدل الثقة بالنسخة المحفوظة',journalCacheRebuilt,'يُعاد بناء القيود ونتيجة التحقق من المستندات المالية الحالية');
   const missingCollectionPayload=basePayload();delete missingCollectionPayload.payments;
   const missingCollectionEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(missingCollectionPayload)),payload:missingCollectionPayload};
   let missingCollectionRejected=false;try{await parseBackupFile(fileFor(missingCollectionEnvelope));}catch(e){missingCollectionRejected=String(e.message).includes('النسخة الحالية ناقصة');}
