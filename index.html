@@ -133,6 +133,46 @@ function save(){localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
 function changed(action,details){data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||'')});if(data.audit.length>1000)data.audit=data.audit.slice(-1000);save();renderAll();}
 function cashEffect(t){if(t.type==='income'||t.type==='debt_in'||t.type==='debt_collection')return 1;if(t.type==='expense'||t.type==='debt_out'||t.type==='debt_repayment')return -1;return 0;}function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
 function walletTimelineValid(wid,extra={}){const w=data.wallets.find(x=>x.id===wid);if(!w)return false;const events=[];data.transactions.filter(t=>t.walletId===wid).forEach(t=>events.push({date:String(t.date||''),time:String(t.createdAt||''),delta:cashEffect(t)*Number(t.amount||0)}));data.transfers.forEach(t=>{if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),delta:-Number(t.amount||0)});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),delta:Number(t.amount||0)});});if(extra.transaction&&extra.transaction.walletId===wid){const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),delta:cashEffect(t)*Number(t.amount||0)});}if(extra.transfer){const t=extra.transfer;if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),delta:-Number(t.amount||0)});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),delta:Number(t.amount||0)});}events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));let running=Number(w.opening)||0;for(const e of events){running+=e.delta;if(running< -0.000001)return false;}return true;}
+// طبقة الأستاذ العام: تُشتق القيود من المستندات الحالية دون تغييرها أو حذفها.
+function ledgerAccount(id,name,kind,normalSide,sourceId){return {id,name,kind,normalSide,sourceId:sourceId||null};}
+function getLedgerAccounts(){
+ const rows=[];
+ data.wallets.forEach(w=>rows.push(ledgerAccount('wallet:'+w.id,w.name,'asset','debit',w.id)));
+ data.accounts.forEach(a=>{const type=accountTypeOf(a);if(type)rows.push(ledgerAccount('user:'+a.id,a.name,type==='income'?'revenue':'expense',type==='income'?'credit':'debit',a.id));});
+ rows.push(ledgerAccount('system:opening-equity','حقوق الملكية — الأرصدة الافتتاحية','equity','credit'));
+ const parties=new Map();
+ data.debts.forEach(d=>{const key=debtGroupKey(d),type=d.type==='receivable'?'receivable':'payable';if(!parties.has(type+':'+key))parties.set(type+':'+key,{id:'party:'+type+':'+key,name:(type==='receivable'?'ذمم مدينة — ':'ذمم دائنة — ')+d.person,kind:type,normalSide:type==='receivable'?'debit':'credit'});});
+ parties.forEach(p=>rows.push(ledgerAccount(p.id,p.name,p.kind,p.normalSide)));
+ return rows;
+}
+function ledgerLine(accountId,debit,credit,memo){return {accountId,debitMinor:Math.round(debit||0),creditMinor:Math.round(credit||0),memo:memo||''};}
+function journalLinesForTransaction(t){
+ const wallet='wallet:'+t.walletId,amount=Math.round(Number(t.amount)||0),user='user:'+t.accountId;
+ if(!Number.isSafeInteger(amount)||amount<=0)throw new Error('مبلغ القيد غير صالح: '+t.id);
+ if(t.type==='income')return [ledgerLine(wallet,amount,0,'إيداع في المحفظة'),ledgerLine(user,0,amount,'إيراد')];
+ if(t.type==='expense')return [ledgerLine(user,amount,0,'مصروف'),ledgerLine(wallet,0,amount,'صرف من المحفظة')];
+ const d=data.debts.find(x=>x.id===t.debtId);
+ const group=d?debtGroupKey(d):String(t.debtGroupKey||'');
+ const receivable='party:receivable:'+group,payable='party:payable:'+group;
+ if(t.type==='debt_out')return [ledgerLine(receivable,amount,0,'إنشاء ذمة مدينة — لنا'),ledgerLine(wallet,0,amount,'صرف نقدي عند إنشاء الذمة')];
+ if(t.type==='debt_in')return [ledgerLine(wallet,amount,0,'استلام نقدي عند إنشاء الذمة الدائنة'),ledgerLine(payable,0,amount,'ذمة دائنة — علينا')];
+ if(t.type==='debt_collection')return [ledgerLine(wallet,amount,0,'تحصيل ذمة مدينة'),ledgerLine(receivable,0,amount,'تخفيض الذمم المدينة')];
+ if(t.type==='debt_repayment')return [ledgerLine(payable,amount,0,'تخفيض الذمم الدائنة'),ledgerLine(wallet,0,amount,'سداد نقدي')];
+ throw new Error('نوع حركة غير مدعوم في الأستاذ العام: '+t.type);
+}
+function journalLinesForTransfer(t){const amount=Math.round(Number(t.amount)||0);if(!Number.isSafeInteger(amount)||amount<=0)throw new Error('مبلغ التحويل غير صالح: '+t.id);return [ledgerLine('wallet:'+t.to,amount,0,'استلام تحويل داخلي'),ledgerLine('wallet:'+t.from,0,amount,'إرسال تحويل داخلي')];}
+function getJournalEntries(){
+ const entries=[];
+ data.wallets.forEach(w=>{const amount=Math.round(Number(w.opening)||0);if(amount>0)entries.push({id:'opening:'+w.id,sourceType:'wallet_opening',sourceId:w.id,date:w.created||today(),lines:[ledgerLine('wallet:'+w.id,amount,0,'رصيد افتتاحي للمحفظة'),ledgerLine('system:opening-equity',0,amount,'حقوق الملكية — رصيد افتتاحي')]});});
+ data.transactions.forEach(t=>entries.push({id:'transaction:'+t.id,sourceType:'transaction',sourceId:t.id,date:t.date,lines:journalLinesForTransaction(t)}));
+ data.transfers.forEach(t=>entries.push({id:'transfer:'+t.id,sourceType:'transfer',sourceId:t.id,date:t.date,lines:journalLinesForTransfer(t)}));
+ return entries;
+}
+function validateJournalEntries(entries=getJournalEntries()){
+ const errors=[];const accounts=new Set(getLedgerAccounts().map(a=>a.id));
+ entries.forEach(e=>{let debit=0,credit=0;if(!e.lines||e.lines.length<2)errors.push('قيد بلا طرفين: '+e.id);(e.lines||[]).forEach(l=>{debit+=l.debitMinor;credit+=l.creditMinor;if(!accounts.has(l.accountId))errors.push('حساب غير معروف '+l.accountId+' في '+e.id);if(!Number.isSafeInteger(l.debitMinor)||!Number.isSafeInteger(l.creditMinor)||l.debitMinor<0||l.creditMinor<0||((l.debitMinor>0)===(l.creditMinor>0)))errors.push('سطر قيد غير صالح في '+e.id);});if(debit!==credit)errors.push('القيد غير متوازن '+e.id+': '+debit+' / '+credit);});
+ return {valid:errors.length===0,entryCount:entries.length,errorCount:errors.length,errors};
+}
 function accountLabel(id){const a=data.accounts.find(x=>x.id===id);return a?a.name:'غير محدد';}
 function accountTypeOf(a){if(!a)return '';if(a.type==='income'||a.type==='expense')return a.type;const n=String(a.name||'');if(a.level==='parent'){if(n.includes('إيراد'))return 'income';if(n.includes('مصروف'))return 'expense';}if(a.parentId){const p=data.accounts.find(x=>x.id===a.parentId);if(p)return accountTypeOf(p);}return '';}
 function accountTypeLabel(type){return type==='income'?'إيرادات':type==='expense'?'مصروفات':'قديم / غير مصنف';}
