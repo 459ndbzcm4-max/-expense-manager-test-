@@ -197,6 +197,7 @@ function getLedgerBalances(entries=getJournalEntries()){
 function validateJournalEntries(entries=getJournalEntries()){
  const errors=[];const accounts=new Set(getLedgerAccounts().map(a=>a.id));
  entries.forEach(e=>{let debit=0,credit=0;if(!e.lines||e.lines.length<2)errors.push('قيد بلا طرفين: '+e.id);(e.lines||[]).forEach(l=>{debit+=l.debitMinor;credit+=l.creditMinor;if(!accounts.has(l.accountId))errors.push('حساب غير معروف '+l.accountId+' في '+e.id);if(!Number.isSafeInteger(l.debitMinor)||!Number.isSafeInteger(l.creditMinor)||l.debitMinor<0||l.creditMinor<0||((l.debitMinor>0)===(l.creditMinor>0)))errors.push('سطر قيد غير صالح في '+e.id);});if(debit!==credit)errors.push('القيد غير متوازن '+e.id+': '+debit+' / '+credit);});
+ data.transactions.filter(t=>isFinancialActive(t)&&(t.type==='income'||t.type==='expense')).forEach(t=>{const account=data.accounts.find(a=>a.id===t.accountId),actual=accountTypeOf(account);if(actual&&actual!==t.type)errors.push('نوع الحساب لا يطابق نوع العملية '+t.id+': '+actual+' / '+t.type);});
  return {valid:errors.length===0,entryCount:entries.length,errorCount:errors.length,errors};
 }
 function runLedgerSelfTests(){
@@ -216,6 +217,8 @@ function runLedgerSelfTests(){
   ],transfers:[{id:'test-tr',from:'test-wa',to:'test-wb',amount:10000,date:'2026-01-08'}],payments:[],audit:[]};
   const entries=getJournalEntries(),validation=validateJournalEntries(entries),balances=getLedgerBalances(entries),byId=new Map(balances.map(a=>[a.id,a]));
   check('توازن كل قيد منفردًا',validation.valid,validation.errors.join(' | '));
+  const originalIncomeAccount=data.transactions[0].accountId;data.transactions[0].accountId='test-exp';const mismatchValidation=validateJournalEntries(getJournalEntries());data.transactions[0].accountId=originalIncomeAccount;
+  check('رفض ربط الإيراد بحساب مصروف',!mismatchValidation.valid,'يجب أن يطابق نوع الحساب نوع العملية التشغيلية');
   const debit=balances.reduce((s,a)=>s+a.debitMinor,0),credit=balances.reduce((s,a)=>s+a.creditMinor,0);
   check('تساوي إجمالي المدين والدائن',debit===credit,'مدين '+debit+' / دائن '+credit);
   check('رصيد المحفظة الأولى',byId.get('wallet:test-wa')?.balanceMinor===107000,'المتوقع 107000 فلس');
