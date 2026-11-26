@@ -46,7 +46,7 @@
 <div class="card"><h2>الذمم وسجل السداد</h2><div class="grid"><div><label>بحث بالاسم أو الهاتف</label><input id="debtSearch" placeholder="ابحث هنا"></div><div><label>عرض</label><select id="debtFilter"><option value="all">الكل</option><option value="receivable">مدينون (لي)</option><option value="payable">دائنون (عليّ)</option><option value="open">الرصيد المتبقي فقط</option></select></div></div><div id="debtList" class="empty">لا توجد ذمم مسجلة.</div></div>
 </section>
 <section id="reports" class="panel">
-<div class="card"><h2>التقارير والإحصاءات</h2><div class="grid"><div><label>من تاريخ</label><input type="date" lang="en-GB" dir="ltr" id="reportFrom"></div><div><label>إلى تاريخ</label><input type="date" lang="en-GB" dir="ltr" id="reportTo"></div><div><label>المحفظة</label><select id="reportWallet"></select></div><div><label>الحساب</label><select id="reportAccount"></select></div></div><div class="actions no-print"><button class="btn" id="runReport">إنشاء التقرير</button><button class="btn secondary" id="exportCsv">تصدير Excel (CSV)</button><button class="btn secondary" id="printReport">طباعة / حفظ PDF</button><button class="btn secondary" id="openReportPage">فتح التقرير في صفحة مستقلة</button></div><p class="muted">لإنشاء PDF: اختر «طباعة / حفظ PDF»، ثم من خيارات الطباعة على الجهاز اختر «حفظ في الملفات» أو خيار PDF المتاح. ملف CSV يفتح في Excel، وقد تحتاج إلى اختيار ترميز UTF-8 عند الاستيراد.</p><div id="reportSummary" class="stats"></div><div class="card"><h2>تفصيل حسب الحساب</h2><div id="accountReport" class="empty">اضغط «إنشاء التقرير» لعرض النتائج.</div></div><div class="card"><h2>تفصيل المعاملات</h2><div id="reportRows" class="empty">لا توجد نتائج.</div></div><div class="card"><h2>أرصدة المحافظ الحالية</h2><div id="reportWallets" class="empty">لا توجد محافظ.</div></div><div class="card"><h2>ملخص الذمم</h2><div id="reportDebts" class="empty">لا توجد ذمم.</div></div><div class="card"><h2>ملخص الأرصدة</h2><p class="muted">عرض نقدي مبسط وليس بديلاً عن القوائم المحاسبية الرسمية.</p><div id="trialBalance" class="empty">اضغط «إنشاء التقرير».</div></div></div>
+<div class="card"><h2>التقارير والإحصاءات</h2><div class="grid"><div><label>من تاريخ</label><input type="date" lang="en-GB" dir="ltr" id="reportFrom"></div><div><label>إلى تاريخ</label><input type="date" lang="en-GB" dir="ltr" id="reportTo"></div><div><label>المحفظة</label><select id="reportWallet"></select></div><div><label>الحساب</label><select id="reportAccount"></select></div></div><div class="actions no-print"><button class="btn" id="runReport">إنشاء التقرير</button><button class="btn secondary" id="exportCsv">تصدير Excel (CSV)</button><button class="btn secondary" id="printReport">طباعة / حفظ PDF</button><button class="btn secondary" id="openReportPage">فتح التقرير في صفحة مستقلة</button></div><p class="muted">لإنشاء PDF: اختر «طباعة / حفظ PDF»، ثم من خيارات الطباعة على الجهاز اختر «حفظ في الملفات» أو خيار PDF المتاح. ملف CSV يفتح في Excel، وقد تحتاج إلى اختيار ترميز UTF-8 عند الاستيراد.</p><div id="reportSummary" class="stats"></div><div class="card"><h2>تفصيل حسب الحساب</h2><div id="accountReport" class="empty">اضغط «إنشاء التقرير» لعرض النتائج.</div></div><div class="card"><h2>تفصيل المعاملات</h2><div id="reportRows" class="empty">لا توجد نتائج.</div></div><div class="card"><h2>أرصدة المحافظ الحالية</h2><div id="reportWallets" class="empty">لا توجد محافظ.</div></div><div class="card"><h2>ملخص الذمم</h2><div id="reportDebts" class="empty">لا توجد ذمم.</div></div><div class="card"><h2>ملخص الأرصدة</h2><p class="muted">عرض نقدي مبسط وليس بديلاً عن القوائم المحاسبية الرسمية.</p><div class="actions no-print"><button class="btn secondary" id="runLedgerTests">تشغيل الاختبارات المحاسبية</button></div><div id="ledgerTestResults" class="muted"></div><div id="trialBalance" class="empty">اضغط «إنشاء التقرير».</div></div></div>
 </section>
 <section id="backup" class="panel">
 <div class="card"><h2>النسخ الاحتياطي والاستعادة</h2><p>احفظ نسخة JSON في تطبيق «الملفات» على الآيفون. النسخة تشمل المحافظ والحسابات والمعاملات والتحويلات والذمم وسجل السداد.</p><div class="actions"><button class="btn" id="exportJson">تنزيل نسخة احتياطية JSON</button><label class="btn secondary" for="importFile">استعادة / دمج نسخة</label><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div><p class="muted">الاستعادة تستبدل البيانات الحالية بعد تأكيد صريح. خيار الدمج يضيف السجلات غير الموجودة دون حذف السجلات الحالية.</p><div class="actions"><button class="btn secondary" id="mergeJson">دمج نسخة احتياطية</button></div><div id="backupStatus" class="muted"></div></div>
@@ -180,6 +180,36 @@ function getLedgerBalances(entries=getJournalEntries()){
  entries.forEach(e=>{let debit=0,credit=0;if(!e.lines||e.lines.length<2)errors.push('قيد بلا طرفين: '+e.id);(e.lines||[]).forEach(l=>{debit+=l.debitMinor;credit+=l.creditMinor;if(!accounts.has(l.accountId))errors.push('حساب غير معروف '+l.accountId+' في '+e.id);if(!Number.isSafeInteger(l.debitMinor)||!Number.isSafeInteger(l.creditMinor)||l.debitMinor<0||l.creditMinor<0||((l.debitMinor>0)===(l.creditMinor>0)))errors.push('سطر قيد غير صالح في '+e.id);});if(debit!==credit)errors.push('القيد غير متوازن '+e.id+': '+debit+' / '+credit);});
  return {valid:errors.length===0,entryCount:entries.length,errorCount:errors.length,errors};
 }
+function runLedgerSelfTests(){
+ const original=data,results=[];
+ const check=(name,condition,detail='')=>results.push({name,passed:!!condition,detail});
+ try{
+  const receivable={id:'test-dr',type:'receivable',person:'اختبار ذمم مدينة',amount:5000};
+  const payable={id:'test-dp',type:'payable',person:'اختبار ذمم دائنة',amount:8000};
+  const receivableKey=debtGroupKey(receivable),payableKey=debtGroupKey(payable);
+  data={version:2,moneyUnit:'fils',wallets:[{id:'test-wa',name:'محفظة أ',opening:100000,created:'2026-01-01'},{id:'test-wb',name:'محفظة ب',opening:0,created:'2026-01-01'}],accounts:[{id:'test-inc',name:'إيراد اختباري',type:'income'},{id:'test-exp',name:'مصروف اختباري',type:'expense'}],debts:[receivable,payable],transactions:[
+   {id:'test-1',type:'income',amount:25000,walletId:'test-wa',accountId:'test-inc',date:'2026-01-02'},
+   {id:'test-2',type:'expense',amount:10000,walletId:'test-wa',accountId:'test-exp',date:'2026-01-03'},
+   {id:'test-3',type:'debt_out',amount:5000,walletId:'test-wa',debtId:receivable.id,date:'2026-01-04'},
+   {id:'test-4',type:'debt_in',amount:8000,walletId:'test-wa',debtId:payable.id,date:'2026-01-05'},
+   {id:'test-5',type:'debt_collection',amount:2000,walletId:'test-wa',debtGroupKey:receivableKey,date:'2026-01-06'},
+   {id:'test-6',type:'debt_repayment',amount:3000,walletId:'test-wa',debtGroupKey:payableKey,date:'2026-01-07'}
+  ],transfers:[{id:'test-tr',from:'test-wa',to:'test-wb',amount:10000,date:'2026-01-08'}],payments:[],audit:[]};
+  const entries=getJournalEntries(),validation=validateJournalEntries(entries),balances=getLedgerBalances(entries),byId=new Map(balances.map(a=>[a.id,a]));
+  check('توازن كل قيد منفردًا',validation.valid,validation.errors.join(' | '));
+  const debit=balances.reduce((s,a)=>s+a.debitMinor,0),credit=balances.reduce((s,a)=>s+a.creditMinor,0);
+  check('تساوي إجمالي المدين والدائن',debit===credit,'مدين '+debit+' / دائن '+credit);
+  check('رصيد المحفظة الأولى',byId.get('wallet:test-wa')?.balanceMinor===107000,'المتوقع 107000 فلس');
+  check('رصيد المحفظة الثانية',byId.get('wallet:test-wb')?.balanceMinor===10000,'المتوقع 10000 فلس');
+  check('الإيراد بطبيعته دائن',byId.get('user:test-inc')?.balanceMinor===25000,'المتوقع 25000 فلس دائن');
+  check('المصروف بطبيعته مدين',byId.get('user:test-exp')?.balanceMinor===10000,'المتوقع 10000 فلس مدين');
+  check('الذمة المدينة بعد التحصيل',byId.get('party:receivable:'+receivableKey)?.balanceMinor===3000,'المتوقع 3000 فلس');
+  check('الذمة الدائنة بعد السداد',byId.get('party:payable:'+payableKey)?.balanceMinor===5000,'المتوقع 5000 فلس');
+  check('التحويل لا يؤثر على إجمالي النقدية',byId.get('wallet:test-wa').balanceMinor+byId.get('wallet:test-wb').balanceMinor===117000,'المتوقع 117000 فلس');
+ }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
+ finally{data=original;}
+ return results;
+}
 function accountLabel(id){const a=data.accounts.find(x=>x.id===id);return a?a.name:'غير محدد';}
 function accountTypeOf(a){if(!a)return '';if(a.type==='income'||a.type==='expense')return a.type;const n=String(a.name||'');if(a.level==='parent'){if(n.includes('إيراد'))return 'income';if(n.includes('مصروف'))return 'expense';}if(a.parentId){const p=data.accounts.find(x=>x.id===a.parentId);if(p)return accountTypeOf(p);}return '';}
 function accountTypeLabel(type){return type==='income'?'إيرادات':type==='expense'?'مصروفات':'قديم / غير مصنف';}
@@ -237,6 +267,7 @@ $('closeApp').addEventListener('click',()=>{if(dirty&&!confirm('توجد تغي�
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 // إعادة بناء لقطة القيود للبيانات الحالية عند بدء التشغيل دون تعديل المستندات الأصلية.
 try{save();}catch(err){console.error('تعذر إعادة بناء سجل القيود المحاسبية:',err);}
+$('runLedgerTests').addEventListener('click',()=>{const results=runLedgerSelfTests(),passed=results.filter(x=>x.passed).length;const box=$('ledgerTestResults');box.innerHTML='<div class="item"><strong>نتيجة الاختبار: '+passed+' / '+results.length+' ناجح</strong></div>'+results.map(x=>'<div class="item">'+(x.passed?'✓':'✕')+' '+esc(x.name)+(x.detail?'<div class="muted">'+esc(x.detail)+'</div>':'')+'</div>').join('');});
 renderAll();
 })();
 </script></body></html>
