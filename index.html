@@ -487,9 +487,11 @@ async function parseBackupFile(file){
   if(obj.schemaVersion!==BACKUP_SCHEMA||!obj.payload)throw new Error('إصدار بنية النسخة غير مدعوم.');
   if(await sha256Hex(JSON.stringify(obj.payload))!==obj.checksum)throw new Error('فشل فحص سلامة النسخة؛ قد يكون الملف تالفًا أو عُدّل.');
   obj=obj.payload;
+ }else{
+  throw new Error('النسخة القديمة أو غير المغلفة غير مدعومة. استخدم نسخة احتياطية صادرة من الإصدار الحالي.');
  }
  if(!obj||!Array.isArray(obj.wallets)||!Array.isArray(obj.transactions))throw new Error('صيغة النسخة غير صحيحة أو غير مدعومة.');
- const legacyWithoutUnit=!Object.prototype.hasOwnProperty.call(obj,'moneyUnit');const candidate={...fresh(),...obj};if(legacyWithoutUnit)candidate.moneyUnit='JOD';if(!['JOD','fils'].includes(candidate.moneyUnit))throw new Error('وحدة المبالغ في النسخة غير معروفة أو غير مدعومة؛ أوقفنا التحويل حفاظًا على القيم الأصلية.');
+ const candidate={...fresh(),...obj};if(candidate.moneyUnit!=='fils')throw new Error('وحدة المبالغ في النسخة غير مدعومة؛ يلزم إنشاء نسخة جديدة من الإصدار الحالي حفاظًا على القيم الأصلية.');
  backupCollections.forEach(k=>{if(!Array.isArray(candidate[k]))candidate[k]=[];});validateBackupFinancialRecords(candidate);ensureMoneyInFils(candidate);
  for(const k of backupCollections){const ids=new Set();for(const row of candidate[k]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل غير صالح ضمن '+k);if(ids.has(row.id))throw new Error('معرّف مكرر ضمن '+k+': '+row.id);ids.add(row.id);}}
  const relations=validateDebtRelations(candidate);if(!relations.valid)throw new Error('علاقات الذمم والتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);} }finally{data=previous;}
@@ -529,8 +531,12 @@ async function runBackupSelfTests(){
   let oversizeRejected=false;try{await parseBackupFile({size:MAX_BACKUP_BYTES+1,text:async()=>'{}'});}catch(e){oversizeRejected=String(e.message).includes('20 ميغابايت');}
   check('رفض ملف يتجاوز حد الحجم',oversizeRejected,'حد الاستيراد 20 ميغابايت');
   const legacy={version:1,wallets:[{id:'legacy-backup-wallet',name:'محفظة قديمة',opening:1.25,created:'2026-01-01'}],transactions:[]};
-  let legacyConverted=false;try{const x=await parseBackupFile(fileFor(legacy));legacyConverted=x.moneyUnit==='fils'&&x.wallets[0].opening===1250;}catch(e){}
-  check('تحويل النسخة القديمة غير الموسومة إلى الفلس مرة واحدة',legacyConverted,'1.25 دينار تصبح 1250 فلسًا');
+  let legacyRejected=false;try{await parseBackupFile(fileFor(legacy));}catch(e){legacyRejected=String(e.message).includes('النسخة القديمة أو غير المغلفة غير مدعومة');}
+  check('رفض النسخة القديمة غير المغلفة',legacyRejected,'لا تُحوّل بنية قديمة تلقائيًا ولا تُفسرها على أنها نسخة حالية');
+  const oldUnitPayload=basePayload();oldUnitPayload.moneyUnit='JOD';oldUnitPayload.wallets=[{id:'old-unit-wallet',name:'اختبار',opening:1.25}];
+  const oldUnitEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(oldUnitPayload)),payload:oldUnitPayload};
+  let oldUnitRejected=false;try{await parseBackupFile(fileFor(oldUnitEnvelope));}catch(e){oldUnitRejected=String(e.message).includes('وحدة المبالغ في النسخة غير مدعومة');}
+  check('رفض نسخة بوحدة نقدية قديمة دون تحويل تلقائي',oldUnitRejected,'لا تُحوّل مبالغ النسخ المستوردة القديمة ضمنيًا');
   const encryptedPayload=basePayload(),encryptedText=JSON.stringify(encryptedPayload),salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),password='Backup-Test-2026!';
   const key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(encryptedText));
   const encryptedEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher))};
