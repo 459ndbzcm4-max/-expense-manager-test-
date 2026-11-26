@@ -247,6 +247,38 @@ function runLedgerSelfTests(){
   check('القيد العكسي يعادل أثر العملية الملغاة',cancelEntries.some(e=>e.id==='reversal:cancelled-expense')&&walletCancel?.balanceMinor===50000,'رصيد المحفظة يعود إلى الرصيد الافتتاحي');
   check('العملية الملغاة لا تدخل كشف الدخل',getIncomeReport('2026-04-01','2026-04-30').rows.length===0,'استبعاد العملية الملغاة من الدخل والمصروفات');
   check('العملية الملغاة لا تدخل حركة المحفظة',getWalletMovementReport('2026-04-01','2026-04-30')[0]?.closing===50000,'لا أثر نقدي للعملية الملغاة');
+  // اختبار إلغاء تسوية ذمة: تُلغى وثيقة السداد والقيد النقدي معًا، فيعود رصيد الذمة.
+  const settlementDebt={id:'settlement-debt',type:'receivable',person:'اختبار إلغاء التسوية',amount:6000,date:'2026-05-01'};
+  const settlementKey=debtGroupKey(settlementDebt);
+  data={version:2,moneyUnit:'fils',wallets:[{id:'settlement-wallet',name:'محفظة التسوية',opening:10000,created:'2026-05-01'}],accounts:[],debts:[settlementDebt],transactions:[
+   {id:'settlement-origin',type:'debt_out',amount:6000,walletId:'settlement-wallet',debtId:settlementDebt.id,date:'2026-05-01'},
+   {id:'settlement-tx',type:'debt_collection',amount:2000,walletId:'settlement-wallet',debtGroupKey:settlementKey,date:'2026-05-02'}
+  ],transfers:[],payments:[{id:'settlement-payment',groupKey:settlementKey,type:'receivable',person:settlementDebt.person,amount:2000,date:'2026-05-02',walletId:'settlement-wallet',transactionId:'settlement-tx'}],audit:[]};
+  const settledBefore=groupDebts(data.debts)[0],cashBefore=balance('settlement-wallet');
+  check('تسجيل التسوية يخفض الذمة ويرفع النقدية',settledBefore.remaining===4000&&cashBefore===6000,'المتبقي 4000 والنقدية 6000 فلس');
+  data.transactions.find(t=>t.id==='settlement-tx').status='cancelled';
+  data.transactions.find(t=>t.id==='settlement-tx').cancelledAt='2026-05-03T10:00:00Z';
+  data.payments.find(p=>p.id==='settlement-payment').status='cancelled';
+  const settlementAfter=groupDebts(data.debts)[0],settlementJournal=validateJournalEntries(getJournalEntries());
+  check('إلغاء التسوية يعيد كامل رصيد الذمة',settlementAfter.remaining===6000,'عاد المتبقي إلى 6000 فلس');
+  check('إلغاء التسوية يعكس أثرها النقدي',balance('settlement-wallet')===4000,'عادت النقدية إلى 4000 فلس');
+  check('إلغاء التسوية ينتج قيدًا عكسيًا متوازنًا',getJournalEntries().some(e=>e.id==='reversal:settlement-tx')&&settlementJournal.valid,settlementJournal.errors.join(' | '));
+  check('إلغاء التسوية يستبعد دفعتها من تقرير الذمم',getDebtReport('2026-05-31')[0]?.remaining===6000,'تقرير الذمم يعرض الرصيد الأصلي بعد الإلغاء');
+  // لا يجوز إلغاء إيراد إذا كان سيجعل رصيد المحفظة سالبًا قبل المصروفات اللاحقة.
+  data={version:2,moneyUnit:'fils',wallets:[{id:'income-cancel-wallet',name:'محفظة اختبار إلغاء الإيراد',opening:0}],accounts:[{id:'income-cancel-account',name:'إيراد',type:'income'},{id:'income-cancel-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
+   {id:'income-to-cancel',type:'income',amount:5000,walletId:'income-cancel-wallet',accountId:'income-cancel-account',date:'2026-06-01',createdAt:'2026-06-01T09:00:00Z'},
+   {id:'later-expense',type:'expense',amount:4000,walletId:'income-cancel-wallet',accountId:'income-cancel-expense',date:'2026-06-02',createdAt:'2026-06-02T09:00:00Z'},
+   {id:'later-extra-expense',type:'expense',amount:2000,walletId:'income-cancel-wallet',accountId:'income-cancel-expense',date:'2026-06-03',createdAt:'2026-06-03T09:00:00Z'}
+  ],transfers:[],payments:[],audit:[]};
+  check('منع إلغاء إيراد يسبب عجزًا في تاريخ لاحق',!walletTimelineValid('income-cancel-wallet',{excludeTransactionId:'income-to-cancel'}),'بدون الإيراد يصبح الرصيد سالبًا بعد المصروفات');
+  // اختبار تعارض معرّف الدمج وقبول السجل المطابق تمامًا.
+  data={version:2,moneyUnit:'fils',wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],audit:[]};
+  const identicalBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}]};
+  let identicalAccepted=true;try{validateMerge(identicalBackup);}catch(e){identicalAccepted=false;}
+  check('قبول المعرّف المتطابق بمحتوى مطابق عند الدمج',identicalAccepted,'لا ينشأ سجل مكرر ولا تعارض');
+  const conflictingBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة مختلفة',opening:1000}]};
+  let conflictingRejected=false;try{validateMerge(conflictingBackup);}catch(e){conflictingRejected=true;}
+  check('رفض تعارض المعرّف بمحتوى مختلف عند الدمج',conflictingRejected,'يُمنع استبدال سجل قائم بصمت');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
