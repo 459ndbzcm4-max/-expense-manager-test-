@@ -460,6 +460,13 @@ async function runBackupSelfTests(){
   window.prompt=()=>'Incorrect-Password!';
   let wrongPasswordRejected=false;try{await parseBackupFile(fileFor(encryptedEnvelope));}catch(e){wrongPasswordRejected=String(e.message).includes('تعذر فك التشفير');}
   check('رفض كلمة المرور الخاطئة',wrongPasswordRejected,'لا تُعاد أي بيانات عند فشل AES-GCM');
+  const rel=basePayload();rel.wallets=[{id:'rel-wallet',name:'اختبار',opening:5000}];rel.debts=[{id:'rel-debt',type:'receivable',person:'اختبار',amount:1000,date:'2026-01-01',walletId:'rel-wallet',transactionId:'rel-create'}];rel.transactions=[{id:'rel-create',type:'debt_out',debtId:'rel-debt',amount:1000,walletId:'rel-wallet',date:'2026-01-01'},{id:'rel-pay-tx',type:'debt_collection',amount:250,walletId:'rel-wallet',date:'2026-01-02'}];rel.payments=[{id:'rel-pay',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:250,walletId:'rel-wallet',date:'2026-01-02',transactionId:'rel-pay-tx'}];
+  check('قبول ترابط ذمة وتسوية وحركاتهما النقدية',validateDebtRelations(rel).valid,'الروابط والمبالغ والمحافظ والتواريخ متطابقة');
+  const brokenRel=JSON.parse(JSON.stringify(rel));brokenRel.payments[0].transactionId='missing-tx';
+  check('رفض تسوية تشير إلى حركة نقدية مفقودة',!validateDebtRelations(brokenRel).valid,'يجب أن توجد الحركة المرتبطة بسجل التسوية');
+  const duplicateRel=JSON.parse(JSON.stringify(rel));duplicateRel.payments.push({...duplicateRel.payments[0],id:'rel-pay-duplicate'});
+  check('رفض ربط حركتين تسويتين بالحركة النقدية نفسها',!validateDebtRelations(duplicateRel).valid,'منع احتساب التسوية مرتين');
+
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
  return results;
