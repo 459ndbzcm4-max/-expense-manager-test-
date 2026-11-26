@@ -278,6 +278,24 @@ function runLedgerSelfTests(){
   check('احتساب حركة تحصيل قديمة غير مرتبطة بسجل تسوية',groupDebts(data.debts)[0]?.remaining===3000&&getDebtReport('2026-07-06')[0]?.remaining===3000,'يُخصم التحصيل القديم من رصيد الذمة والتقرير دون اشتراط وجود سجل payment');
   data.payments=[{id:'legacy-linked-payment',debtId:legacyDebt.id,amount:2000,date:'2026-07-06',transactionId:'legacy-unpaired-collection'}];
   check('منع احتساب التحصيل القديم مرتين عند وجود سجل تسوية مرتبط',groupDebts(data.debts)[0]?.remaining===3000&&getDebtReport('2026-07-06')[0]?.remaining===3000,'سجل payment والحركة النقدية يمثلان تسوية واحدة');
+   // اختبار تطابق رصيد الذمم بين الشاشة والتقرير والأستاذ مع عدة تسويات جزئية.
+   const multiDebt={id:'multi-settlement-debt',type:'receivable',person:'اختبار تسويات متعددة',amount:10000,date:'2026-08-01'};
+   const multiKey=debtGroupKey(multiDebt);
+   data={version:2,moneyUnit:'fils',wallets:[{id:'multi-wallet',name:'محفظة التسويات المتعددة',opening:10000,created:'2026-08-01'}],accounts:[],debts:[multiDebt],transactions:[
+    {id:'multi-origin',type:'debt_out',amount:10000,walletId:'multi-wallet',debtId:multiDebt.id,date:'2026-08-01',createdAt:'2026-08-01T09:00:00Z'},
+    {id:'multi-collection-1',type:'debt_collection',amount:2000,walletId:'multi-wallet',debtGroupKey:multiKey,date:'2026-08-02',createdAt:'2026-08-02T09:00:00Z'},
+    {id:'multi-collection-2',type:'debt_collection',amount:3000,walletId:'multi-wallet',debtGroupKey:multiKey,date:'2026-08-03',createdAt:'2026-08-03T09:00:00Z'}
+   ],transfers:[],payments:[
+    {id:'multi-payment-1',groupKey:multiKey,type:'receivable',person:multiDebt.person,amount:2000,date:'2026-08-02',walletId:'multi-wallet',transactionId:'multi-collection-1'},
+    {id:'multi-payment-2',groupKey:multiKey,type:'receivable',person:multiDebt.person,amount:3000,date:'2026-08-03',walletId:'multi-wallet',transactionId:'multi-collection-2'}
+   ],audit:[]};
+   const multiGroup=groupDebts(data.debts)[0],multiReport=getDebtReport('2026-08-03')[0],multiLedger=getLedgerBalances().find(a=>a.id==='party:receivable:'+multiKey);
+   check('تطابق رصيد الذمة بعد تسويتين جزئيتين',multiGroup?.remaining===5000&&multiReport?.remaining===5000&&multiLedger?.balanceMinor===5000,'الشاشة والتقرير والأستاذ يجب أن تعرض 5000 فلس');
+   check('تطابق رصيد الذمة قبل التسوية الثانية',getDebtReport('2026-08-02')[0]?.remaining===8000&&groupDebts(data.debts)[0]?.remaining===5000,'التقرير التاريخي 8000 والحالي 5000 فلس');
+   data.transactions.find(t=>t.id==='multi-collection-2').status='cancelled';
+   data.payments.find(p=>p.id==='multi-payment-2').status='cancelled';
+   const afterOneCancel=groupDebts(data.debts)[0],afterOneCancelReport=getDebtReport('2026-08-03')[0],afterOneCancelLedger=getLedgerBalances().find(a=>a.id==='party:receivable:'+multiKey);
+   check('تطابق الذمة بعد إلغاء إحدى التسويات',afterOneCancel?.remaining===8000&&afterOneCancelReport?.remaining===8000&&afterOneCancelLedger?.balanceMinor===8000,'تعود الشاشة والتقرير والأستاذ إلى 8000 فلس');
   // اختبار تعارض معرّف الدمج وقبول السجل المطابق تمامًا.
   data={version:2,moneyUnit:'fils',wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],audit:[]};
   const identicalBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}]};
