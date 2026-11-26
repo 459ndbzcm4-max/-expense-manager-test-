@@ -265,7 +265,7 @@ function runLedgerSelfTests(){
   check('إلغاء التسوية ينتج قيدًا عكسيًا متوازنًا',getJournalEntries().some(e=>e.id==='reversal:settlement-tx')&&settlementJournal.valid,settlementJournal.errors.join(' | '));
   check('إلغاء التسوية يستبعد دفعتها من تقرير الذمم',getDebtReport('2026-05-31')[0]?.remaining===6000,'تقرير الذمم يعرض الرصيد الأصلي بعد الإلغاء');
   // لا يجوز إلغاء إيراد إذا كان سيجعل رصيد المحفظة سالبًا قبل المصروفات اللاحقة.
-  data={version:2,moneyUnit:'fils',wallets:[{id:'income-cancel-wallet',name:'محفظة اختبار إلغاء الإيراد',opening:0}],accounts:[{id:'income-cancel-account',name:'إيراد',type:'income'},{id:'income-cancel-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
+  data={version:2,moneyUnit:'fils',wallets:[{id:'income-cancel-wallet',name:'محفظة اختبار إلغاء الإيراد',opening:2000}],accounts:[{id:'income-cancel-account',name:'إيراد',type:'income'},{id:'income-cancel-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
    {id:'income-to-cancel',type:'income',amount:5000,walletId:'income-cancel-wallet',accountId:'income-cancel-account',date:'2026-06-01',createdAt:'2026-06-01T09:00:00Z'},
    {id:'later-expense',type:'expense',amount:4000,walletId:'income-cancel-wallet',accountId:'income-cancel-expense',date:'2026-06-02',createdAt:'2026-06-02T09:00:00Z'},
    {id:'later-extra-expense',type:'expense',amount:2000,walletId:'income-cancel-wallet',accountId:'income-cancel-expense',date:'2026-06-03',createdAt:'2026-06-03T09:00:00Z'}
