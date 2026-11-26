@@ -106,8 +106,8 @@ function cancelFinancialTransaction(id,reason){
  const linkedDebt=data.debts.find(d=>d.id===t.debtId);
  const linkedPayments=data.payments.filter(p=>p.transactionId===t.id&&isFinancialActive(p));
  if((t.type==='debt_out'||t.type==='debt_in')&&linkedDebt){
-  const key=debtGroupKey(linkedDebt),settled=data.payments.some(p=>isFinancialActive(p)&&(p.debtId===linkedDebt.id||p.groupKey===key));
-  if(settled)return {ok:false,message:'لا يمكن إلغاء إنشاء هذه الذمة قبل معالجة جميع التسويات المرتبطة بها.'};
+  const key=debtGroupKey(linkedDebt),settlementType=linkedDebt.type==='receivable'?'debt_collection':'debt_repayment',settled=data.payments.some(p=>isFinancialActive(p)&&(p.debtId===linkedDebt.id||p.groupKey===key)),legacySettled=data.transactions.some(x=>isFinancialActive(x)&&x.type===settlementType&&(x.debtId===linkedDebt.id||x.debtGroupKey===key));
+  if(settled||legacySettled)return {ok:false,message:'لا يمكن إلغاء إنشاء هذه الذمة قبل معالجة جميع التسويات المرتبطة بها.'};
  }
  if(!walletTimelineValid(t.walletId,{excludeTransactionId:t.id}))return {ok:false,message:'تعذر التحقق من تسلسل رصيد المحفظة.'};
  const priorData=data,priorRaw=localStorage.getItem(KEY),priorDirty=dirty;
