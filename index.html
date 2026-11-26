@@ -503,7 +503,7 @@ async function parseBackupFile(file){
   obj=obj.payload;
  }
  if(!obj||!Array.isArray(obj.wallets)||!Array.isArray(obj.transactions))throw new Error('صيغة النسخة غير صحيحة أو غير مدعومة.');
- const legacyWithoutUnit=!Object.prototype.hasOwnProperty.call(obj,'moneyUnit');const candidate={...fresh(),...obj};if(legacyWithoutUnit)candidate.moneyUnit='JOD';ensureMoneyInFils(candidate);
+ const legacyWithoutUnit=!Object.prototype.hasOwnProperty.call(obj,'moneyUnit');const candidate={...fresh(),...obj};if(legacyWithoutUnit)candidate.moneyUnit='JOD';if(!['JOD','fils'].includes(candidate.moneyUnit))throw new Error('وحدة المبالغ في النسخة غير معروفة أو غير مدعومة؛ أوقفنا التحويل حفاظًا على القيم الأصلية.');ensureMoneyInFils(candidate);
  backupCollections.forEach(k=>{if(!Array.isArray(candidate[k]))candidate[k]=[];});
  for(const k of backupCollections){const ids=new Set();for(const row of candidate[k]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل غير صالح ضمن '+k);if(ids.has(row.id))throw new Error('معرّف مكرر ضمن '+k+': '+row.id);ids.add(row.id);}}
  const relations=validateDebtRelations(candidate);if(!relations.valid)throw new Error('علاقات الذمم والتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);} }finally{data=previous;}
@@ -526,6 +526,10 @@ async function runBackupSelfTests(){
   const unsupported={...validEnvelope,schemaVersion:BACKUP_SCHEMA+1};
   let schemaRejected=false;try{await parseBackupFile(fileFor(unsupported));}catch(e){schemaRejected=String(e.message).includes('إصدار بنية النسخة غير مدعوم');}
   check('رفض إصدار بنية غير مدعوم',schemaRejected,'لا تُفسر النسخة بإصدار غير معروف');
+  const unknownUnitPayload=basePayload();unknownUnitPayload.moneyUnit='unknown-unit';unknownUnitPayload.wallets=[{id:'unknown-unit-wallet',name:'اختبار',opening:1250}];
+  const unknownUnitEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(unknownUnitPayload)),payload:unknownUnitPayload};
+  let unknownUnitRejected=false;try{await parseBackupFile(fileFor(unknownUnitEnvelope));}catch(e){unknownUnitRejected=String(e.message).includes('وحدة المبالغ');}
+  check('رفض وحدة مبالغ غير معروفة دون تحويلها',unknownUnitRejected,'لا تُعامل الوحدة المجهولة كأنها دينار ولا تضرب القيم في 1000');
   const duplicatePayload=basePayload();duplicatePayload.wallets=[{id:'duplicate-wallet',name:'أ',opening:0},{id:'duplicate-wallet',name:'ب',opening:0}];
   const duplicateEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(duplicatePayload)),payload:duplicatePayload};
   let duplicateRejected=false;try{await parseBackupFile(fileFor(duplicateEnvelope));}catch(e){duplicateRejected=String(e.message).includes('معرّف مكرر');}
