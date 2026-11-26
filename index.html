@@ -386,7 +386,10 @@ function validateDebtRelations(candidate){
   if(p.walletId&&!walletIds.has(p.walletId))errors.push('محفظة التسوية غير موجودة: '+p.id);
   if(p.debtId&&!debtById.has(p.debtId))errors.push('الذمة المرتبطة بالتسوية غير موجودة: '+p.id);
   if(p.groupKey&&!groupKeys.has(p.groupKey))errors.push('مجموعة الذمم المرتبطة بالتسوية غير موجودة: '+p.id);
+  const relatedDebt=p.debtId?debtById.get(p.debtId):candidate.debts.find(d=>p.groupKey&&debtGroupKey(d)===p.groupKey);
   if(p.debtId&&p.groupKey&&debtGroupKey(debtById.get(p.debtId))!==p.groupKey)errors.push('تعارض مرجع الذمة ومجموعة التسوية: '+p.id);
+  if(!relatedDebt)errors.push('تعذر تحديد الذمة المرتبطة بالتسوية: '+p.id);
+  else if(p.type!==relatedDebt.type)errors.push('نوع التسوية لا يطابق نوع الذمة: '+p.id);
   if(p.transactionId){
    if(paymentTxIds.has(p.transactionId))errors.push('حركة نقدية مرتبطة بأكثر من تسوية: '+p.transactionId);
    paymentTxIds.add(p.transactionId);
@@ -494,12 +497,15 @@ let importMode='replace';$('importFile').addEventListener('change',async e=>{con
   const merged=JSON.parse(JSON.stringify(data));backupCollections.forEach(k=>{const ids=new Set(merged[k].map(x=>x.id));candidate[k].forEach(x=>{if(!ids.has(x.id)){merged[k].push(x);ids.add(x.id);}});});
   const relations=validateDebtRelations(merged);if(!relations.valid)throw new Error('الدمج ينتج علاقات ذمم وتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const prior=data;data=merged;try{const v=validateJournalEntries(getJournalEntries());if(!v.valid)throw new Error('الدمج ينتج قيودًا غير متوازنة.');for(const w of data.wallets)if(!walletTimelineValid(w.id))throw new Error('الدمج يؤدي إلى رصيد نقدي سالب أو تسلسل غير صالح.');}finally{data=prior;}
   if(!confirm(summary+'\n\nسيُضاف فقط ما لا يتعارض من السجلات. هل تعتمد الدمج؟'))return;
-  data=merged;save();renderAll();$('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي.';
+  const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
+  try{data=merged;save();renderAll();$('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي.';}
+  catch(err){data=priorData;dirty=priorDirty;try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){throw new Error('فشل الدمج وفشل استرجاع التخزين السابق؛ أوقف استخدام التطبيق واحتفظ بنسخة البيانات الحالية. السبب: '+String(restoreError&&restoreError.message||restoreError));}throw err;}
  }else{
   if(!confirm(summary+'\n\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
-  const priorRaw=localStorage.getItem(KEY),priorData=data;
-  try{localStorage.setItem(KEY+'.rollback.'+Date.now(),priorRaw||JSON.stringify(priorData));data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. أُنشئت نقطة رجوع محلية.';}
-  catch(err){data=priorData;if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);throw err;}
+  const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
+  const rollbackKey=KEY+'.rollback.'+Date.now();
+  try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. أُنشئت نقطة رجوع محلية.';}
+  catch(err){data=priorData;dirty=priorDirty;try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){throw new Error('فشلت الاستعادة وتعذر إرجاع التخزين السابق؛ احتفظ بالنسخة الاحتياطية الأصلية ولا تتابع إدخال البيانات. السبب: '+String(restoreError&&restoreError.message||restoreError));}throw err;}
  }
 }catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{e.target.value='';}});
 $('mergeJson').addEventListener('click',()=>{importMode='merge';$('importFile').click();});$('importFile').addEventListener('click',()=>{if(importMode!=='merge')importMode='replace';});
