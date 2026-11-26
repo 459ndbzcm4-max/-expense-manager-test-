@@ -438,7 +438,7 @@ function validateDebtRelations(candidate){
    const t=txById.get(d.transactionId);
    if(!t||t.debtId!==d.id)errors.push('حركة إنشاء الذمة غير مرتبطة بصورة صحيحة: '+d.id);
    else{
-    if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId||String(t.date||'')!==String(d.date||''))errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
+    if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId||(d.date&&t.date&&String(t.date)!==String(d.date)))errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
     if((d.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة الذمة لا تطابق حالة حركة إنشائها: '+d.id);if(d.cancelledDate&&t.cancelledDate&&d.cancelledDate!==t.cancelledDate)errors.push('تاريخ إلغاء الذمة لا يطابق حركة إنشائها: '+d.id);if(d.cancelledAt&&t.cancelledAt&&d.cancelledAt!==t.cancelledAt)errors.push('وقت إلغاء الذمة لا يطابق حركة إنشائها: '+d.id);
    }
   }
@@ -461,7 +461,7 @@ function validateDebtRelations(candidate){
    if(!t)errors.push('حركة التسوية النقدية غير موجودة: '+p.id);
    else{
     const expected=p.type==='receivable'?'debt_collection':p.type==='payable'?'debt_repayment':null;
-    if(!expected||t.type!==expected||Number(t.amount)!==Number(p.amount)||t.walletId!==p.walletId||String(t.date||'')!==String(p.date||''))errors.push('بيانات حركة التسوية لا تطابق سجل التسوية: '+p.id);
+    if(!expected||t.type!==expected||Number(t.amount)!==Number(p.amount)||t.walletId!==p.walletId||(p.date&&t.date&&String(t.date)!==String(p.date)))errors.push('بيانات حركة التسوية لا تطابق سجل التسوية: '+p.id);
     if((p.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة التسوية لا تطابق حالة حركتها النقدية: '+p.id);if(p.cancelledDate&&t.cancelledDate&&p.cancelledDate!==t.cancelledDate)errors.push('تاريخ إلغاء التسوية لا يطابق حركتها النقدية: '+p.id);if(p.cancelledAt&&t.cancelledAt&&p.cancelledAt!==t.cancelledAt)errors.push('وقت إلغاء التسوية لا يطابق حركتها النقدية: '+p.id);
     if(t.debtId)errors.push('حركة تسوية مرتبطة بمعرّف إنشاء ذمة بدل مجموعة تسوية: '+p.id);
     const expectedGroup=p.groupKey||(p.debtId&&debtById.has(p.debtId)?debtGroupKey(debtById.get(p.debtId)):'');
