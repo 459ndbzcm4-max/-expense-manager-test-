@@ -99,7 +99,7 @@ function changed(action,details){
  return true;
 }
 function isFinancialActive(x){return !x||x.status!=='cancelled';}
-function isFinancialActiveAt(x,asOf){if(!asOf)return isFinancialActive(x);if(!x||!x.date||String(x.date)>asOf)return false;if(x.status==='cancelled'){const cancelledDate=String(x.cancelledAt||'').slice(0,10);return !!cancelledDate&&cancelledDate>asOf;}return true;}
+function isFinancialActiveAt(x,asOf){if(!asOf)return isFinancialActive(x);if(!x||!x.date||String(x.date)>asOf)return false;if(x.status==='cancelled'){const cancelledDate=String(x.cancelledDate||x.cancelledAt||'').slice(0,10);return !!cancelledDate&&cancelledDate>asOf;}return true;}
 function cashEffect(t){if(!isFinancialActive(t))return 0;if(t.type==='income'||t.type==='debt_in'||t.type==='debt_collection')return 1;if(t.type==='expense'||t.type==='debt_out'||t.type==='debt_repayment')return -1;return 0;}
 function cancelFinancialTransaction(id,reason){
  const t=data.transactions.find(x=>x.id===id);if(!t||!isFinancialActive(t))return {ok:false,message:'العملية غير موجودة أو ملغاة سابقًا.'};
@@ -115,7 +115,7 @@ function cancelFinancialTransaction(id,reason){
  try{
   const target=data.transactions.find(x=>x.id===id),debt=data.debts.find(d=>d.id===target.debtId);
   const oldValues={status:target.status||'posted',amount:target.amount,type:target.type,walletId:target.walletId,date:target.date};
-  target.status='cancelled';target.cancelledAt=new Date().toISOString();target.cancelledBy='local_owner';target.cancelReason=reason;
+  target.status='cancelled';target.cancelledAt=new Date().toISOString();target.cancelledDate=today();target.cancelledBy='local_owner';target.cancelReason=reason;
   data.payments.filter(p=>p.transactionId===target.id&&isFinancialActive(p)).forEach(p=>{p.status='cancelled';p.cancelledAt=target.cancelledAt;p.cancelReason=reason;});
   if(debt&&(target.type==='debt_out'||target.type==='debt_in'))debt.status='cancelled';
   data.audit.push({id:uid(),date:target.cancelledAt,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:target.id,oldValues,newValues:{status:'cancelled',cancelReason:reason},reason});
@@ -160,7 +160,7 @@ function journalLinesForTransfer(t){const amount=Math.round(Number(t.amount)||0)
 function getJournalEntries(){
  const entries=[];
  data.wallets.forEach(w=>{const amount=Math.round(Number(w.opening)||0);if(amount>0)entries.push({id:'opening:'+w.id,sourceType:'wallet_opening',sourceId:w.id,date:w.created||today(),lines:[ledgerLine('wallet:'+w.id,amount,0,'رصيد افتتاحي للمحفظة'),ledgerLine('system:opening-equity',0,amount,'حقوق الملكية — رصيد افتتاحي')]});});
- data.transactions.forEach(t=>{const lines=journalLinesForTransaction(t);entries.push({id:'transaction:'+t.id,sourceType:'transaction',sourceId:t.id,date:t.date,lines});if(t.status==='cancelled')entries.push({id:'reversal:'+t.id,sourceType:'transaction_reversal',sourceId:t.id,date:(t.cancelledAt||t.date||'').slice(0,10),lines:lines.map(l=>({...l,debitMinor:l.creditMinor,creditMinor:l.debitMinor,line_description:'قيد عكسي لإلغاء العملية'}))});});
+ data.transactions.forEach(t=>{const lines=journalLinesForTransaction(t);entries.push({id:'transaction:'+t.id,sourceType:'transaction',sourceId:t.id,date:t.date,lines});if(t.status==='cancelled')entries.push({id:'reversal:'+t.id,sourceType:'transaction_reversal',sourceId:t.id,date:(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10),lines:lines.map(l=>({...l,debitMinor:l.creditMinor,creditMinor:l.debitMinor,line_description:'قيد عكسي لإلغاء العملية'}))});});
  data.transfers.forEach(t=>entries.push({id:'transfer:'+t.id,sourceType:'transfer',sourceId:t.id,date:t.date,lines:journalLinesForTransfer(t)}));
  return entries;
 }
@@ -314,9 +314,11 @@ function runLedgerSelfTests(){
   check('تطابق الذمة الدائنة بعد تسويتين جزئيتين',payableGroup?.remaining===10000&&payableReport?.remaining===10000&&payableLedger?.balanceMinor===10000,'أصل 15000، مسدد 5000، والمتبقي 10000 فلس في الشاشة والتقرير والأستاذ');
   check('تطابق الذمة الدائنة تاريخيًا قبل التسوية الثانية',getDebtReport('2026-09-03')[0]?.remaining===13000,'المتبقي التاريخي بعد تسوية 2000 هو 13000 فلس');
   data.transactions.find(t=>t.id==='payable-settlement-2').status='cancelled';
-  data.transactions.find(t=>t.id==='payable-settlement-2').cancelledAt='2026-09-05T08:00:00Z';
+  data.transactions.find(t=>t.id==='payable-settlement-2').cancelledAt='2026-09-04T22:00:00Z';
+  data.transactions.find(t=>t.id==='payable-settlement-2').cancelledDate='2026-09-05';
   data.payments.find(p=>p.id==='payable-payment-2').status='cancelled';
-  data.payments.find(p=>p.id==='payable-payment-2').cancelledAt='2026-09-05T08:00:00Z';
+  data.payments.find(p=>p.id==='payable-payment-2').cancelledAt='2026-09-04T22:00:00Z';
+  data.payments.find(p=>p.id==='payable-payment-2').cancelledDate='2026-09-05';
   const payableAfterCancel=groupDebts(data.debts)[0],payableAfterCancelReport=getDebtReport('2026-09-05')[0],payableAfterCancelLedger=getLedgerBalances().find(a=>a.id==='party:payable:'+payableGroupKeyTest);
   check('تطابق الذمة الدائنة بعد إلغاء التسوية الثانية',payableAfterCancel?.remaining===13000&&payableAfterCancelReport?.remaining===13000&&payableAfterCancelLedger?.balanceMinor===13000,'يعود المتبقي إلى 13000 فلس في الشاشة والتقرير والأستاذ');
   check('حفظ التقرير التاريخي قبل تاريخ الإلغاء',getDebtReport('2026-09-04')[0]?.remaining===10000,'في 4 سبتمبر كانت التسويتان مسجلتين؛ الإلغاء وقع في 5 سبتمبر');
