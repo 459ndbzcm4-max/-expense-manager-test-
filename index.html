@@ -561,6 +561,13 @@ async function runBackupSelfTests(){
   check('احتساب التسوية القديمة المرتبطة بالمجموعة في التقرير',groupUnpairedLegacyPaid([legacyGroupOnly.debts[0]])===250,'لا يشترط وجود debtId إذا كان مفتاح المجموعة صحيحًا');
   const legacyGroupLinked=JSON.parse(JSON.stringify(rel));legacyGroupLinked.payments[0].debtId=undefined;legacyGroupLinked.transactions.find(t=>t.id==='rel-pay-tx').debtGroupKey=debtGroupKey(legacyGroupLinked.debts[0]);
   check('عدم تكرار احتساب التسوية القديمة المرتبطة بسجل payment عبر المجموعة',groupUnpairedLegacyPaid([legacyGroupLinked.debts[0]])===0,'يُستبعد transactionId المرتبط بسجل payment عبر groupKey أيضًا');
+  const mergeBase=basePayload();mergeBase.debts=[{id:'merge-cancelled-debt',type:'payable',person:'دمج',amount:1000,status:'cancelled',cancelledDate:'2026-11-01'}];data=mergeBase;
+  let identicalCancelledMerge=true;try{validateMerge({...basePayload(),debts:[{...mergeBase.debts[0]}]});}catch(e){identicalCancelledMerge=false;}
+  check('السماح بدمج سجل إلغاء مطابق تمامًا',identicalCancelledMerge,'السجل المتطابق لا يسبب تعارضًا ولا يُستبدل');
+  let cancellationConflictRejected=false;try{validateMerge({...basePayload(),debts:[{...mergeBase.debts[0],status:'posted',cancelledDate:undefined}]});}catch(e){cancellationConflictRejected=String(e.message).includes('تعارض معرّفات');}
+  check('رفض دمج سجل نشط فوق ذمة ملغاة بالمعرّف نفسه',cancellationConflictRejected,'لا يجوز أن تعيد نسخة قديمة إحياء ذمة ملغاة بصمت');
+  let newRowsAllowed=true;try{validateMerge({...basePayload(),debts:[{id:'new-merge-debt',type:'receivable',person:'جديد',amount:500}]});}catch(e){newRowsAllowed=false;}
+  check('السماح بإضافة سجلات جديدة غير متعارضة أثناء الدمج',newRowsAllowed,'الدمج يضيف السجلات الجديدة ولا يبدل السجلات القائمة');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
