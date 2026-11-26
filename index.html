@@ -408,6 +408,11 @@ function validateDebtRelations(candidate){
    }
   }
  });
+ const debtTotals=new Map();
+ candidate.debts.filter(d=>isFinancialActive(d)).forEach(d=>{const key=debtGroupKey(d);debtTotals.set(key,(debtTotals.get(key)||0)+Number(d.amount||0));});
+ const paidTotals=new Map();
+ candidate.payments.filter(p=>isFinancialActive(p)).forEach(p=>{const linked=p.debtId?debtById.get(p.debtId):null;const key=p.groupKey||(linked?debtGroupKey(linked):'');if(key)paidTotals.set(key,(paidTotals.get(key)||0)+Number(p.amount||0));});
+ paidTotals.forEach((paid,key)=>{if(paid>(debtTotals.get(key)||0))errors.push('إجمالي التسويات يتجاوز أصل الذمم: '+key);});
  return {valid:errors.length===0,errors};
 }
 async function parseBackupFile(file){
@@ -485,6 +490,8 @@ async function runBackupSelfTests(){
   check('رفض تسوية تشير إلى حركة نقدية مفقودة',!validateDebtRelations(brokenRel).valid,'يجب أن توجد الحركة المرتبطة بسجل التسوية');
   const duplicateRel=JSON.parse(JSON.stringify(rel));duplicateRel.payments.push({...duplicateRel.payments[0],id:'rel-pay-duplicate'});
   check('رفض ربط حركتين تسويتين بالحركة النقدية نفسها',!validateDebtRelations(duplicateRel).valid,'منع احتساب التسوية مرتين');
+  const overpaidRel=JSON.parse(JSON.stringify(rel));overpaidRel.payments.push({id:'rel-overpaid',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:800,walletId:'rel-wallet',date:'2026-01-03'});
+  check('رفض نسخة تتجاوز فيها التسويات أصل الذمم',!validateDebtRelations(overpaidRel).valid,'إجمالي التسويات النشطة 1050 مقابل أصل ذمة 1000');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
