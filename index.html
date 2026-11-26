@@ -376,6 +376,9 @@ function validateDebtRelations(candidate){
     if(!expected||t.type!==expected||Number(t.amount)!==Number(p.amount)||t.walletId!==p.walletId||String(t.date||'')!==String(p.date||''))errors.push('بيانات حركة التسوية لا تطابق سجل التسوية: '+p.id);
     if((p.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة التسوية لا تطابق حالة حركتها النقدية: '+p.id);
     if(t.debtId)errors.push('حركة تسوية مرتبطة بمعرّف إنشاء ذمة بدل مجموعة تسوية: '+p.id);
+    const expectedGroup=p.groupKey||(p.debtId&&debtById.has(p.debtId)?debtGroupKey(debtById.get(p.debtId)):'');
+    if(!expectedGroup||String(t.debtGroupKey||'')!==expectedGroup)errors.push('مجموعة حركة التسوية لا تطابق مجموعة الذمة: '+p.id);
+    if(p.person&&debtGroupKey({type:p.type,person:p.person})!==expectedGroup)errors.push('اسم الشخص في التسوية لا يطابق مجموعة الذمة: '+p.id);
    }
   }
  });
@@ -453,7 +456,7 @@ async function runBackupSelfTests(){
   window.prompt=()=>'Incorrect-Password!';
   let wrongPasswordRejected=false;try{await parseBackupFile(fileFor(encryptedEnvelope));}catch(e){wrongPasswordRejected=String(e.message).includes('تعذر فك التشفير');}
   check('رفض كلمة المرور الخاطئة',wrongPasswordRejected,'لا تُعاد أي بيانات عند فشل AES-GCM');
-  const rel=basePayload();rel.wallets=[{id:'rel-wallet',name:'اختبار',opening:5000}];rel.debts=[{id:'rel-debt',type:'receivable',person:'اختبار',amount:1000,date:'2026-01-01',walletId:'rel-wallet',transactionId:'rel-create'}];rel.transactions=[{id:'rel-create',type:'debt_out',debtId:'rel-debt',amount:1000,walletId:'rel-wallet',date:'2026-01-01'},{id:'rel-pay-tx',type:'debt_collection',amount:250,walletId:'rel-wallet',date:'2026-01-02'}];rel.payments=[{id:'rel-pay',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:250,walletId:'rel-wallet',date:'2026-01-02',transactionId:'rel-pay-tx'}];
+  const rel=basePayload();rel.wallets=[{id:'rel-wallet',name:'اختبار',opening:5000}];rel.debts=[{id:'rel-debt',type:'receivable',person:'اختبار',amount:1000,date:'2026-01-01',walletId:'rel-wallet',transactionId:'rel-create'}];rel.transactions=[{id:'rel-create',type:'debt_out',debtId:'rel-debt',amount:1000,walletId:'rel-wallet',date:'2026-01-01'},{id:'rel-pay-tx',type:'debt_collection',debtGroupKey:debtGroupKey(rel.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'}];rel.payments=[{id:'rel-pay',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:250,walletId:'rel-wallet',date:'2026-01-02',transactionId:'rel-pay-tx'}];
   check('قبول ترابط ذمة وتسوية وحركاتهما النقدية',validateDebtRelations(rel).valid,'الروابط والمبالغ والمحافظ والتواريخ متطابقة');
   const wrongDirection=JSON.parse(JSON.stringify(rel));wrongDirection.payments[0].type='payable';
   check('رفض تسوية لا تطابق اتجاه الذمة',!validateDebtRelations(wrongDirection).valid,'منع استخدام سداد الدائن بدل تحصيل المدين أو العكس');
@@ -465,6 +468,8 @@ async function runBackupSelfTests(){
   check('رفض نسخة تتجاوز فيها التسويات أصل الذمم',!validateDebtRelations(overpaidRel).valid,'إجمالي التسويات النشطة 1050 مقابل أصل ذمة 1000');
   const statusMismatch=JSON.parse(JSON.stringify(rel));statusMismatch.debts[0].status='cancelled';
   check('رفض عدم تطابق إلغاء الذمة مع حركة إنشائها',!validateDebtRelations(statusMismatch).valid,'يجب إلغاء سجل الذمة وحركته النقدية معًا');
+  const wrongSettlementGroup=JSON.parse(JSON.stringify(rel));wrongSettlementGroup.transactions.find(t=>t.id==='rel-pay-tx').debtGroupKey='receivable|شخص آخر';
+  check('رفض ربط حركة التسوية بمجموعة ذمم مختلفة',!validateDebtRelations(wrongSettlementGroup).valid,'يجب أن تطابق المجموعة المحاسبية في الحركة سجل التسوية');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
