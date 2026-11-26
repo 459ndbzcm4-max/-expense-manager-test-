@@ -443,6 +443,15 @@ function validateDebtRelations(candidate){
    }
   }
  });
+ const creationTransactions=new Map();
+ candidate.transactions.filter(t=>['debt_out','debt_in'].includes(t.type)).forEach(t=>{
+  if(!t.debtId||!debtById.has(t.debtId)){errors.push('حركة إنشاء ذمة يتيمة أو بلا مرجع ذمة صحيح: '+t.id);return;}
+  if(creationTransactions.has(t.debtId)){errors.push('أكثر من حركة إنشاء مرتبطة بالذمة نفسها: '+t.debtId);return;}
+  creationTransactions.set(t.debtId,t);
+  const d=debtById.get(t.debtId),expected=d.type==='receivable'?'debt_out':'debt_in';
+  if(t.type!==expected||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId||(d.date&&t.date&&String(d.date)!==String(t.date)))errors.push('حركة إنشاء الذمة لا تطابق سجل الذمة: '+d.id);
+  if(d.transactionId&&d.transactionId!==t.id)errors.push('معرّف حركة إنشاء الذمة لا يطابق الحركة المرتبطة: '+d.id);
+ });
  const paymentTxIds=new Set();
  candidate.payments.forEach(p=>{
   if(!validAmount(p.amount))errors.push('مبلغ تسوية غير صالح: '+p.id);
@@ -574,6 +583,12 @@ async function runBackupSelfTests(){
   window.prompt=()=>'Incorrect-Password!';
   let wrongPasswordRejected=false;try{await parseBackupFile(fileFor(encryptedEnvelope));}catch(e){wrongPasswordRejected=String(e.message).includes('تعذر فك التشفير');}
   check('رفض كلمة المرور الخاطئة',wrongPasswordRejected,'لا تُعاد أي بيانات عند فشل AES-GCM');
+  const orphanCreation=basePayload();orphanCreation.wallets=[{id:'orphan-wallet',name:'محفظة',opening:10000}];orphanCreation.transactions=[{id:'orphan-debt-create',type:'debt_out',debtId:'missing-debt',amount:1000,walletId:'orphan-wallet',date:'2026-01-01'}];
+  check('رفض حركة إنشاء ذمة يتيمة',!validateDebtRelations(orphanCreation).valid,'لا تُقبل حركة قرض أو اقتراض دون سجل ذمة مطابق');
+  const debtWithoutTransactionLink=basePayload();debtWithoutTransactionLink.wallets=[{id:'rel-wallet',name:'محفظة',opening:10000}];debtWithoutTransactionLink.debts=[{id:'legacy-debt-no-txid',type:'receivable',person:'سجل قديم',amount:1000,date:'2026-01-01',walletId:'rel-wallet'}];debtWithoutTransactionLink.transactions=[{id:'legacy-debt-create',type:'debt_out',debtId:'legacy-debt-no-txid',amount:1000,walletId:'rel-wallet',date:'2026-01-01'}];
+  check('قبول حركة إنشاء قديمة دون transactionId عند تطابق المرجع',validateDebtRelations(debtWithoutTransactionLink).valid,'يحافظ على التوافق القديم إذا كان debtId يربط الحركة بذمة واحدة وتطابق البيانات');
+  const duplicateDebtCreation=JSON.parse(JSON.stringify(debtWithoutTransactionLink));duplicateDebtCreation.transactions.push({...duplicateDebtCreation.transactions[0],id:'legacy-debt-create-duplicate'});
+  check('رفض حركتي إنشاء للذمة نفسها',!validateDebtRelations(duplicateDebtCreation).valid,'يمنع تضاعف أصل الذمة بسبب حركة إنشاء مكررة');
   const rel=basePayload();rel.wallets=[{id:'rel-wallet',name:'اختبار',opening:5000}];rel.debts=[{id:'rel-debt',type:'receivable',person:'اختبار',amount:1000,date:'2026-01-01',walletId:'rel-wallet',transactionId:'rel-create'}];rel.transactions=[{id:'rel-create',type:'debt_out',debtId:'rel-debt',amount:1000,walletId:'rel-wallet',date:'2026-01-01'},{id:'rel-pay-tx',type:'debt_collection',debtGroupKey:debtGroupKey(rel.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'}];rel.payments=[{id:'rel-pay',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:250,walletId:'rel-wallet',date:'2026-01-02',transactionId:'rel-pay-tx'}];
   check('قبول ترابط ذمة وتسوية وحركاتهما النقدية',validateDebtRelations(rel).valid,'الروابط والمبالغ والمحافظ والتواريخ متطابقة');
   const wrongDirection=JSON.parse(JSON.stringify(rel));wrongDirection.payments[0].type='payable';
