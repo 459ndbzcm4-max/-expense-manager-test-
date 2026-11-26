@@ -76,59 +76,8 @@ function ensureMoneyInFils(target){
 (function migrateMoneyToFils(){if(data.moneyUnit==='fils')return;ensureMoneyInFils(data);localStorage.setItem(KEY,JSON.stringify(data));})();
 
 // إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
-(function repairLegacySplitDebtSettlements(){
- const candidates=data.transactions.filter(t=>t&&
-  (t.type==='debt_collection'||t.type==='debt_repayment')&&
-  (t.debtSettlement||String(t.note||'').includes('تسوية ذمة مجمعة'))
- );
- const buckets=new Map();
- candidates.forEach(t=>{
-  const ms=Date.parse(t.createdAt||'');
-  const minute=Number.isFinite(ms)?Math.floor(ms/60000):String(t.createdAt||'');
-  const k=[t.type,t.date,t.walletId,t.description,minute].join('|');
-  if(!buckets.has(k))buckets.set(k,[]);
-  buckets.get(k).push(t);
- });
- let changedLegacy=false;
- buckets.forEach(xs=>{
-  if(xs.length<2)return;
-  // لا ندمج إلا العمليات المتشابهة التي أنشئت في الدقيقة نفسها؛ أي ضغطة تسديد واحدة.
-  const total=xs.reduce((s,t)=>s+(Number(t.amount)||0),0);
-  const keep=[...xs].sort((a,b)=>String(a.id).localeCompare(String(b.id)))[0];
-  if(Math.abs(Number(keep.amount||0)-total)>0){keep.amount=total;changedLegacy=true;}
-  keep.debtSettlement=true;
-  const removed=new Set(xs.filter(t=>t.id!==keep.id).map(t=>t.id));
-  if(removed.size){
-   data.payments.forEach(p=>{if(removed.has(p.transactionId))p.transactionId=keep.id;});
-   data.transactions=data.transactions.filter(t=>!removed.has(t.id));
-   changedLegacy=true;
-  }
- });
- // بعد دمج الأجزاء قد يبقى سجل مُدمج قديم بجانب عملية التسديد الأصلية نفسها.
- // نزيل فقط التكرار المطابق تمامًا في النوع/التاريخ/المحفظة/الشخص/المبلغ ضمن فترة قصيرة،
- // ونحتفظ بأحدث عملية، لأنها العملية الأصلية الظاهرة للمستخدم.
- const duplicateBuckets=new Map();
- data.transactions.filter(t=>t&&(t.type==='debt_collection'||t.type==='debt_repayment')&&t.debtSettlement).forEach(t=>{
-   const k=[t.type,t.date,t.walletId,t.description,Number(t.amount)||0].join('|');
-   if(!duplicateBuckets.has(k))duplicateBuckets.set(k,[]);
-   duplicateBuckets.get(k).push(t);
- });
- duplicateBuckets.forEach(xs=>{
-   if(xs.length<2)return;
-   xs.sort((a,b)=>Date.parse(b.createdAt||0)-Date.parse(a.createdAt||0));
-   const keep=xs[0], remove=xs.slice(1).filter(t=>{
-     const a=Date.parse(keep.createdAt||0), b=Date.parse(t.createdAt||0);
-     return Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=10*60*1000;
-   });
-   if(remove.length){
-     const ids=new Set(remove.map(t=>t.id));
-     data.payments=data.payments.filter(p=>!ids.has(p.transactionId));
-     data.transactions=data.transactions.filter(t=>!ids.has(t.id));
-     changedLegacy=true;
-   }
- });
- if(changedLegacy)localStorage.setItem(KEY,JSON.stringify(data));
-})();
+// لا تُنفّذ معالجة تلقائية لسجلات التسويات القديمة؛ تبقى بيانات المستخدم كما هي حتى اعتماد أداة إصلاح صريحة.
+;
 function save(){const journal=getJournalEntries();data.journalEntries=journal;data.journalValidation=validateJournalEntries(journal);localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
 function changed(action,details){
  let priorRaw;
@@ -394,7 +343,10 @@ function validateDebtRelations(candidate){
   if(d.transactionId){
    const t=txById.get(d.transactionId);
    if(!t||t.debtId!==d.id)errors.push('حركة إنشاء الذمة غير مرتبطة بصورة صحيحة: '+d.id);
-   else if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId)errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
+   else{
+    if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId)errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
+    if((d.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة الذمة لا تطابق حالة حركة إنشائها: '+d.id);
+   }
   }
  });
  const paymentTxIds=new Set();
@@ -504,6 +456,8 @@ async function runBackupSelfTests(){
   check('رفض ربط حركتين تسويتين بالحركة النقدية نفسها',!validateDebtRelations(duplicateRel).valid,'منع احتساب التسوية مرتين');
   const overpaidRel=JSON.parse(JSON.stringify(rel));overpaidRel.payments.push({id:'rel-overpaid',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:800,walletId:'rel-wallet',date:'2026-01-03'});
   check('رفض نسخة تتجاوز فيها التسويات أصل الذمم',!validateDebtRelations(overpaidRel).valid,'إجمالي التسويات النشطة 1050 مقابل أصل ذمة 1000');
+  const statusMismatch=JSON.parse(JSON.stringify(rel));statusMismatch.debts[0].status='cancelled';
+  check('رفض عدم تطابق إلغاء الذمة مع حركة إنشائها',!validateDebtRelations(statusMismatch).valid,'يجب إلغاء سجل الذمة وحركته النقدية معًا');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
