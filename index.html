@@ -451,8 +451,16 @@ function validateDebtRelations(candidate){
  });
  const debtTotals=new Map();
  candidate.debts.filter(d=>isFinancialActive(d)).forEach(d=>{const key=debtGroupKey(d);debtTotals.set(key,(debtTotals.get(key)||0)+Number(d.amount||0));});
- const paidTotals=new Map();
+ const paidTotals=new Map(),paymentTransactionIds=new Set(candidate.payments.map(p=>p.transactionId).filter(Boolean));
  candidate.payments.filter(p=>isFinancialActive(p)).forEach(p=>{const linked=p.debtId?debtById.get(p.debtId):null;const key=p.groupKey||(linked?debtGroupKey(linked):'');if(key)paidTotals.set(key,(paidTotals.get(key)||0)+Number(p.amount||0));});
+ candidate.transactions.filter(t=>isFinancialActive(t)&&['debt_collection','debt_repayment'].includes(t.type)&&!paymentTransactionIds.has(t.id)).forEach(t=>{
+  const expected=t.type==='debt_collection'?'receivable':'payable',linked=t.debtId?debtById.get(t.debtId):null,key=t.debtGroupKey||(linked?debtGroupKey(linked):'');
+  if(!key||!groupKeys.has(key))errors.push('حركة تسوية قديمة لا ترتبط بمجموعة ذمم معروفة: '+t.id);
+  else if(!key.startsWith(expected+'|'))errors.push('اتجاه حركة التسوية القديمة لا يطابق نوع الذمة: '+t.id);
+  if(t.debtId&&(!linked||debtGroupKey(linked)!==key))errors.push('مرجع الذمة في حركة التسوية القديمة غير متطابق: '+t.id);
+  if(!Number.isSafeInteger(Number(t.amount))||Number(t.amount)<=0)errors.push('مبلغ حركة التسوية القديمة غير صالح: '+t.id);
+  if(key&&Number.isSafeInteger(Number(t.amount))&&Number(t.amount)>0)paidTotals.set(key,(paidTotals.get(key)||0)+Number(t.amount));
+ });
  paidTotals.forEach((paid,key)=>{if(paid>(debtTotals.get(key)||0))errors.push('إجمالي التسويات يتجاوز أصل الذمم: '+key);});
  return {valid:errors.length===0,errors};
 }
@@ -537,6 +545,14 @@ async function runBackupSelfTests(){
   check('رفض عدم تطابق إلغاء الذمة مع حركة إنشائها',!validateDebtRelations(statusMismatch).valid,'يجب إلغاء سجل الذمة وحركته النقدية معًا');
   const wrongSettlementGroup=JSON.parse(JSON.stringify(rel));wrongSettlementGroup.transactions.find(t=>t.id==='rel-pay-tx').debtGroupKey='receivable|شخص آخر';
   check('رفض ربط حركة التسوية بمجموعة ذمم مختلفة',!validateDebtRelations(wrongSettlementGroup).valid,'يجب أن تطابق المجموعة المحاسبية في الحركة سجل التسوية');
+  const legacyOnly=JSON.parse(JSON.stringify(rel));legacyOnly.payments=[];legacyOnly.transactions=legacyOnly.transactions.filter(t=>t.id==='rel-create');legacyOnly.transactions.push({id:'legacy-only-settlement',type:'debt_collection',debtGroupKey:debtGroupKey(legacyOnly.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'});
+  check('قبول تسوية قديمة بلا سجل payment إذا كانت ضمن أصل الذمة',validateDebtRelations(legacyOnly).valid,'الحفاظ على توافق النسخ القديمة مع حد أصل الذمم');
+  const legacyOverpaid=JSON.parse(JSON.stringify(legacyOnly));legacyOverpaid.transactions.push({id:'legacy-overpaid-settlement',type:'debt_collection',debtGroupKey:debtGroupKey(legacyOverpaid.debts[0]),amount:800,walletId:'rel-wallet',date:'2026-01-03'});
+  check('رفض تجاوز التسويات القديمة أصل الذمة',!validateDebtRelations(legacyOverpaid).valid,'يُجمع سجل التسويات القديمة مع سجلات payment دون تجاوز أصل الذمة');
+  const legacyUnknown=JSON.parse(JSON.stringify(legacyOnly));legacyUnknown.transactions.find(t=>t.id==='legacy-only-settlement').debtGroupKey='receivable|غير موجود';
+  check('رفض تسوية قديمة لمجموعة ذمم غير موجودة',!validateDebtRelations(legacyUnknown).valid,'لا تُقبل حركة تسوية يتعذر ربطها بذمة معروفة');
+  const noDoubleCount=JSON.parse(JSON.stringify(rel));noDoubleCount.transactions.find(t=>t.id==='rel-pay-tx').amount=250;
+  check('عدم احتساب حركة التسوية المرتبطة مرتين',validateDebtRelations(noDoubleCount).valid,'الحركة المرتبطة بسجل payment لا تُضاف مرة ثانية إلى الإجمالي');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
  finally{data=original;window.prompt=oldPrompt;}
