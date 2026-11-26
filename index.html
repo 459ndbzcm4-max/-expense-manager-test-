@@ -65,7 +65,7 @@ const money=n=>new Intl.NumberFormat('ar-JO',{minimumFractionDigits:3,maximumFra
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fresh=()=>({version:2,moneyUnit:'fils',wallets:[],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],journalValidation:null,audit:[]});
 let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null;
-try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2){data={...fresh(),...p};moneyMigrationUnit=Object.prototype.hasOwnProperty.call(p,'moneyUnit')?p.moneyUnit:null;moneyMigrationPending=moneyMigrationUnit!=='fils';}}}catch(e){alert('تعذر قراءة البيانات المحلية. لا تحذف بيانات المتصفح؛ جرّب استعادة النسخة الاحتياطية.');}
+try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2){data={...fresh(),...p};moneyMigrationUnit=Object.prototype.hasOwnProperty.call(p,'moneyUnit')?p.moneyUnit:null;if(moneyMigrationUnit===null)data.moneyUnit='JOD';moneyMigrationPending=moneyMigrationUnit!=='fils';}}}catch(e){alert('تعذر قراءة البيانات المحلية. لا تحذف بيانات المتصفح؛ جرّب استعادة النسخة الاحتياطية.');}
 // توحيد التخزين النقدي بوحدات الفلس الصحيحة (1 دينار = 1000 فلس).
 function ensureMoneyInFils(target){
  if(!target||target.moneyUnit==='fils')return target;
@@ -537,7 +537,7 @@ function approveMoneyMigration(){
   snapshotKey=KEY+'.pre-money-migration.'+Date.now();
   localStorage.setItem(snapshotKey,priorRaw);
   if(localStorage.getItem(snapshotKey)!==priorRaw)throw new Error('تعذر التحقق من حفظ النسخة الأصلية.');
-  const previous=data;
+  const previous=JSON.parse(JSON.stringify(data));
   try{ensureMoneyInFils(data);save();}
   catch(err){data=previous;try{localStorage.setItem(KEY,priorRaw);}catch(restoreErr){throw new Error('فشل التحويل وفشل إرجاع البيانات الأصلية. احتفظ بالنسخة التي نزلتها. '+String(restoreErr&&restoreErr.message||restoreErr));}throw err;}
   moneyMigrationPending=false;
