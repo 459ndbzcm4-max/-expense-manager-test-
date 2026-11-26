@@ -142,14 +142,23 @@ function cancelFinancialTransaction(id,reason){
   if(settled)return {ok:false,message:'لا يمكن إلغاء إنشاء هذه الذمة قبل معالجة جميع التسويات المرتبطة بها.'};
  }
  if(!walletTimelineValid(t.walletId,{excludeTransactionId:t.id}))return {ok:false,message:'تعذر التحقق من تسلسل رصيد المحفظة.'};
- const oldValues={status:t.status||'posted',amount:t.amount,type:t.type,walletId:t.walletId,date:t.date};
- t.status='cancelled';t.cancelledAt=new Date().toISOString();t.cancelledBy='local_owner';t.cancelReason=reason;
- linkedPayments.forEach(p=>{p.status='cancelled';p.cancelledAt=t.cancelledAt;p.cancelReason=reason;});
- if(linkedDebt&&(t.type==='debt_out'||t.type==='debt_in'))linkedDebt.status='cancelled';
- data.audit.push({id:uid(),date:t.cancelledAt,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:t.id,oldValues,newValues:{status:'cancelled',cancelReason:reason},reason});
- 
- save();renderAll();return {ok:true};
-}function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
+ const priorData=data,priorRaw=localStorage.getItem(KEY),priorDirty=dirty;
+ data=JSON.parse(JSON.stringify(data));
+ try{
+  const target=data.transactions.find(x=>x.id===id),debt=data.debts.find(d=>d.id===target.debtId);
+  const oldValues={status:target.status||'posted',amount:target.amount,type:target.type,walletId:target.walletId,date:target.date};
+  target.status='cancelled';target.cancelledAt=new Date().toISOString();target.cancelledBy='local_owner';target.cancelReason=reason;
+  data.payments.filter(p=>p.transactionId===target.id&&isFinancialActive(p)).forEach(p=>{p.status='cancelled';p.cancelledAt=target.cancelledAt;p.cancelReason=reason;});
+  if(debt&&(target.type==='debt_out'||target.type==='debt_in'))debt.status='cancelled';
+  data.audit.push({id:uid(),date:target.cancelledAt,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:target.id,oldValues,newValues:{status:'cancelled',cancelReason:reason},reason});
+  save();renderAll();return {ok:true};
+ }catch(err){
+  data=priorData;dirty=priorDirty;
+  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){}
+  return {ok:false,message:'تعذر إتمام الإلغاء؛ أُعيدت البيانات إلى حالتها السابقة. '+String(err&&err.message||err)};
+ }
+}
+function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
 function walletTimelineValid(wid,extra={}){const w=data.wallets.find(x=>x.id===wid);if(!w)return false;const opening=Number(w.opening??0);if(!Number.isSafeInteger(opening)||opening<0)return false;const events=[];data.transactions.filter(t=>isFinancialActive(t)&&t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0)}));data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0)});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0)});});if(extra.transaction&&extra.transaction.walletId===wid){const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0)});}if(extra.transfer){const t=extra.transfer;if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0)});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0)});}events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.id.localeCompare(b.id));let running=opening;for(const e of events){if(!Number.isSafeInteger(e.delta))return false;running+=e.delta;if(!Number.isSafeInteger(running)||running<0)return false;}return true;}
 function canSettleDebt(group,amount){return !!group&&Number.isSafeInteger(amount)&&amount>0&&amount<=Number(group.remaining||0);}
 // طبقة الأستاذ العام: تُشتق القيود من المستندات الحالية دون تغييرها أو حذفها.
