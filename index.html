@@ -376,6 +376,12 @@ async function runBackupSelfTests(){
   const unsupported={...validEnvelope,schemaVersion:BACKUP_SCHEMA+1};
   let schemaRejected=false;try{await parseBackupFile(fileFor(unsupported));}catch(e){schemaRejected=String(e.message).includes('إصدار بنية النسخة غير مدعوم');}
   check('رفض إصدار بنية غير مدعوم',schemaRejected,'لا تُفسر النسخة بإصدار غير معروف');
+  const duplicatePayload=basePayload();duplicatePayload.wallets=[{id:'duplicate-wallet',name:'أ',opening:0},{id:'duplicate-wallet',name:'ب',opening:0}];
+  const duplicateEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(duplicatePayload)),payload:duplicatePayload};
+  let duplicateRejected=false;try{await parseBackupFile(fileFor(duplicateEnvelope));}catch(e){duplicateRejected=String(e.message).includes('معرّف مكرر');}
+  check('رفض تكرار معرّف سجل داخل النسخة',duplicateRejected,'لا يُسمح بمعرفين متطابقين في المجموعة نفسها');
+  let oversizeRejected=false;try{await parseBackupFile({size:MAX_BACKUP_BYTES+1,text:async()=>'{}'});}catch(e){oversizeRejected=String(e.message).includes('20 ميغابايت');}
+  check('رفض ملف يتجاوز حد الحجم',oversizeRejected,'حد الاستيراد 20 ميغابايت');
   const legacy={version:1,wallets:[{id:'legacy-backup-wallet',name:'محفظة قديمة',opening:1.25,created:'2026-01-01'}],transactions:[]};
   let legacyConverted=false;try{const x=await parseBackupFile(fileFor(legacy));legacyConverted=x.moneyUnit==='fils'&&x.wallets[0].opening===1250;}catch(e){}
   check('تحويل النسخة القديمة غير الموسومة إلى الفلس مرة واحدة',legacyConverted,'1.25 دينار تصبح 1250 فلسًا');
