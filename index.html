@@ -235,6 +235,8 @@ if(b.dataset.deleteDebt){const d=data.debts.find(x=>x.id===b.dataset.deleteDebt)
 });
 $('closeApp').addEventListener('click',()=>{if(dirty&&!confirm('توجد تغييرات غير محفوظة. مغادرة دون حفظ؟'))return;if(dirty)dirty=false;alert('تم الحفظ تلقائيًا. يمكنك إغلاق صفحة التطبيق من مبدّل التطبيقات في الآيفون.');});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
+// إعادة بناء لقطة القيود للبيانات الحالية عند بدء التشغيل دون تعديل المستندات الأصلية.
+try{save();}catch(err){console.error('تعذر إعادة بناء سجل القيود المحاسبية:',err);}
 renderAll();
 })();
 </script></body></html>
