@@ -299,22 +299,22 @@ function runLedgerSelfTests(){
   // اختبار الذمم الدائنة: ذمتان للشخص نفسه وتسويتان جزئيتان ثم إلغاء إحداهما.
   const payableA={id:'multi-payable-a',type:'payable',person:'مورد الاختبار',amount:10000,walletId:'payable-wallet',date:'2026-09-01',transactionId:'payable-create-a'};
   const payableB={id:'multi-payable-b',type:'payable',person:'مورد الاختبار',amount:5000,walletId:'payable-wallet',date:'2026-09-02',transactionId:'payable-create-b'};
-  const payableKey=debtGroupKey(payableA);
+  const payableGroupKeyTest=debtGroupKey(payableA);
   data={version:2,moneyUnit:'fils',wallets:[{id:'payable-wallet',name:'محفظة الذمم الدائنة',opening:50000}],accounts:[],debts:[payableA,payableB],transactions:[
    {id:'payable-create-a',type:'debt_in',amount:10000,walletId:'payable-wallet',debtId:payableA.id,date:'2026-09-01',createdAt:'2026-09-01T08:00:00Z'},
    {id:'payable-create-b',type:'debt_in',amount:5000,walletId:'payable-wallet',debtId:payableB.id,date:'2026-09-02',createdAt:'2026-09-02T08:00:00Z'},
-   {id:'payable-settlement-1',type:'debt_repayment',amount:2000,walletId:'payable-wallet',debtGroupKey:payableKey,date:'2026-09-03',createdAt:'2026-09-03T08:00:00Z'},
-   {id:'payable-settlement-2',type:'debt_repayment',amount:3000,walletId:'payable-wallet',debtGroupKey:payableKey,date:'2026-09-04',createdAt:'2026-09-04T08:00:00Z'}
+   {id:'payable-settlement-1',type:'debt_repayment',amount:2000,walletId:'payable-wallet',debtGroupKey:payableGroupKeyTest,date:'2026-09-03',createdAt:'2026-09-03T08:00:00Z'},
+   {id:'payable-settlement-2',type:'debt_repayment',amount:3000,walletId:'payable-wallet',debtGroupKey:payableGroupKeyTest,date:'2026-09-04',createdAt:'2026-09-04T08:00:00Z'}
   ],transfers:[],payments:[
-   {id:'payable-payment-1',groupKey:payableKey,type:'payable',person:payableA.person,amount:2000,date:'2026-09-03',walletId:'payable-wallet',transactionId:'payable-settlement-1'},
-   {id:'payable-payment-2',groupKey:payableKey,type:'payable',person:payableA.person,amount:3000,date:'2026-09-04',walletId:'payable-wallet',transactionId:'payable-settlement-2'}
+   {id:'payable-payment-1',groupKey:payableGroupKeyTest,type:'payable',person:payableA.person,amount:2000,date:'2026-09-03',walletId:'payable-wallet',transactionId:'payable-settlement-1'},
+   {id:'payable-payment-2',groupKey:payableGroupKeyTest,type:'payable',person:payableA.person,amount:3000,date:'2026-09-04',walletId:'payable-wallet',transactionId:'payable-settlement-2'}
   ],audit:[]};
-  const payableGroup=groupDebts(data.debts)[0],payableReport=getDebtReport('2026-09-04')[0],payableLedger=getLedgerBalances().find(a=>a.id==='party:payable:'+payableKey);
+  const payableGroup=groupDebts(data.debts)[0],payableReport=getDebtReport('2026-09-04')[0],payableLedger=getLedgerBalances().find(a=>a.id==='party:payable:'+payableGroupKeyTest);
   check('تطابق الذمة الدائنة بعد تسويتين جزئيتين',payableGroup?.remaining===10000&&payableReport?.remaining===10000&&payableLedger?.balanceMinor===10000,'أصل 15000، مسدد 5000، والمتبقي 10000 فلس في الشاشة والتقرير والأستاذ');
   check('تطابق الذمة الدائنة تاريخيًا قبل التسوية الثانية',getDebtReport('2026-09-03')[0]?.remaining===13000,'المتبقي التاريخي بعد تسوية 2000 هو 13000 فلس');
   data.transactions.find(t=>t.id==='payable-settlement-2').status='cancelled';
   data.payments.find(p=>p.id==='payable-payment-2').status='cancelled';
-  const payableAfterCancel=groupDebts(data.debts)[0],payableAfterCancelReport=getDebtReport('2026-09-04')[0],payableAfterCancelLedger=getLedgerBalances().find(a=>a.id==='party:payable:'+payableKey);
+  const payableAfterCancel=groupDebts(data.debts)[0],payableAfterCancelReport=getDebtReport('2026-09-04')[0],payableAfterCancelLedger=getLedgerBalances().find(a=>a.id==='party:payable:'+payableGroupKeyTest);
   check('تطابق الذمة الدائنة بعد إلغاء التسوية الثانية',payableAfterCancel?.remaining===13000&&payableAfterCancelReport?.remaining===13000&&payableAfterCancelLedger?.balanceMinor===13000,'يعود المتبقي إلى 13000 فلس في الشاشة والتقرير والأستاذ');
   check('عكس إلغاء السداد في رصيد المحفظة',balance('payable-wallet')===63000,'الرصيد الختامي 63000 فلس بعد إلغاء سداد 3000 فلس');
   // اختبار تعارض معرّف الدمج وقبول السجل المطابق تمامًا.
