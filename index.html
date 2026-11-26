@@ -345,8 +345,12 @@ async function parseBackupFile(file){
  if(file.size>MAX_BACKUP_BYTES)throw new Error('حجم الملف يتجاوز الحد المسموح (20 ميغابايت).');
  let obj=JSON.parse(await file.text());
  if(obj&&obj.format===BACKUP_FORMAT&&obj.encrypted){
+  if(obj.schemaVersion!==BACKUP_SCHEMA)throw new Error('إصدار بنية النسخة المشفرة غير مدعوم.');
+  if(obj.algorithm!=='AES-256-GCM'||obj.kdf!=='PBKDF2-SHA-256'||obj.iterations!==250000)throw new Error('إعدادات تشفير النسخة غير مدعومة أو غير آمنة.');
+  let saltBytes,ivBytes,cipherBytes;try{saltBytes=b64ToBytes(obj.salt);ivBytes=b64ToBytes(obj.iv);cipherBytes=b64ToBytes(obj.ciphertext);}catch(e){throw new Error('بيانات التشفير في النسخة غير صالحة.');}
+  if(saltBytes.length!==16||ivBytes.length!==12||cipherBytes.length<16)throw new Error('أطوال بيانات التشفير في النسخة غير صالحة.');
   const password=prompt('أدخل كلمة مرور النسخة الاحتياطية المشفرة.');if(password===null)throw new Error('تم إلغاء فك التشفير.');
-  try{const key=await deriveBackupKey(password,b64ToBytes(obj.salt));const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64ToBytes(obj.iv)},key,b64ToBytes(obj.ciphertext));obj=JSON.parse(new TextDecoder().decode(plain));}catch(e){throw new Error('تعذر فك التشفير؛ تحقق من كلمة المرور وسلامة الملف.');}
+  try{const key=await deriveBackupKey(password,saltBytes);const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:ivBytes},key,cipherBytes);obj=JSON.parse(new TextDecoder().decode(plain));}catch(e){throw new Error('تعذر فك التشفير؛ تحقق من كلمة المرور وسلامة الملف.');}
  }else if(obj&&obj.format===BACKUP_FORMAT){
   if(obj.schemaVersion!==BACKUP_SCHEMA||!obj.payload)throw new Error('إصدار بنية النسخة غير مدعوم.');
   if(await sha256Hex(JSON.stringify(obj.payload))!==obj.checksum)throw new Error('فشل فحص سلامة النسخة؛ قد يكون الملف تالفًا أو عُدّل.');
@@ -388,6 +392,16 @@ async function runBackupSelfTests(){
   const encryptedPayload=basePayload(),encryptedText=JSON.stringify(encryptedPayload),salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),password='Backup-Test-2026!';
   const key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(encryptedText));
   const encryptedEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher))};
+  let promptCalls=0;window.prompt=()=>{promptCalls++;return password;};
+  const badEncryptedSchema={...encryptedEnvelope,schemaVersion:BACKUP_SCHEMA+1};
+  let encryptedSchemaRejected=false;try{await parseBackupFile(fileFor(badEncryptedSchema));}catch(e){encryptedSchemaRejected=String(e.message).includes('إصدار بنية النسخة المشفرة غير مدعوم');}
+  check('رفض إصدار بنية غير مدعوم للنسخة المشفرة قبل طلب كلمة المرور',encryptedSchemaRejected&&promptCalls===0,'التحقق من الإصدار يسبق فك التشفير');
+  const badEncryptedParams={...encryptedEnvelope,iterations:1};
+  let encryptedParamsRejected=false;try{await parseBackupFile(fileFor(badEncryptedParams));}catch(e){encryptedParamsRejected=String(e.message).includes('إعدادات تشفير النسخة');}
+  check('رفض إعدادات تشفير غير معتمدة',encryptedParamsRejected,'لا يسمح بتغيير خوارزمية التشفير أو KDF أو عدد التكرارات');
+  const badEncryptedLengths={...encryptedEnvelope,iv:bytesToB64(new Uint8Array(8))};
+  let encryptedLengthsRejected=false;try{await parseBackupFile(fileFor(badEncryptedLengths));}catch(e){encryptedLengthsRejected=String(e.message).includes('أطوال بيانات التشفير');}
+  check('رفض أطوال الملح وIV غير الصحيحة',encryptedLengthsRejected,'AES-GCM يتطلب salt بطول 16 وIV بطول 12 بايت');
   window.prompt=()=>password;
   let encryptedAccepted=false;try{const x=await parseBackupFile(fileFor(encryptedEnvelope));encryptedAccepted=x.moneyUnit==='fils'&&Array.isArray(x.wallets);}catch(e){}
   check('قبول النسخة المشفرة بكلمة المرور الصحيحة',encryptedAccepted,'فك التشفير والتحقق من البيانات');
