@@ -487,6 +487,16 @@ function validateDebtRelations(candidate){
  paidTotals.forEach((paid,key)=>{if(paid>(debtTotals.get(key)||0))errors.push('إجمالي التسويات يتجاوز أصل الذمم: '+key);});
  return {valid:errors.length===0,errors};
 }
+function validateBackupFinancialRecords(candidate){
+ const unit=candidate.moneyUnit,scale=unit==='JOD'?1000:1;
+ const amount=(value,label,allowZero=false)=>{if(value===undefined||value===null||value===''||typeof value==='boolean')throw new Error('مبلغ مفقود أو غير صالح: '+label);const n=Number(value),scaled=n*scale;if(!Number.isFinite(n)||!Number.isSafeInteger(scaled)||(!allowZero&&scaled<=0)||(allowZero&&scaled<0))throw new Error('المبلغ خارج النطاق أو يحتوي دقة غير مدعومة: '+label);};
+ const validDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&(()=>{const d=new Date(value+'T00:00:00Z');return Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===value;})();
+ const walletIds=new Set(candidate.wallets.map(w=>w&&w.id)),accountById=new Map(candidate.accounts.map(a=>[a&&a.id,a]));
+ candidate.wallets.forEach(w=>{if(!w||!w.id)throw new Error('محفظة بلا معرّف.');if(w.opening!==undefined&&w.opening!==null)amount(w.opening,'الرصيد الافتتاحي للمحفظة '+w.id,true);});
+ candidate.transactions.forEach(t=>{if(!t||!t.id)throw new Error('معاملة بلا معرّف.');amount(t.amount,'المعاملة '+t.id);if(!walletIds.has(t.walletId))throw new Error('المحفظة غير موجودة في المعاملة '+t.id);if(!validDate(t.date))throw new Error('تاريخ المعاملة غير صالح: '+t.id);if(!['income','expense','debt_out','debt_in','debt_collection','debt_repayment'].includes(t.type))throw new Error('نوع معاملة غير مدعوم: '+t.id);if(t.type==='income'||t.type==='expense'){const account=accountById.get(t.accountId);if(!account)throw new Error('الحساب غير موجود في المعاملة '+t.id);const actual=accountTypeOf(account);if(actual&&actual!==t.type)throw new Error('نوع الحساب لا يطابق المعاملة '+t.id);}});
+ candidate.transfers.forEach(t=>{if(!t||!t.id)throw new Error('تحويل بلا معرّف.');amount(t.amount,'التحويل '+t.id);if(!walletIds.has(t.from)||!walletIds.has(t.to)||t.from===t.to)throw new Error('محافظ التحويل غير صالحة: '+t.id);if(!validDate(t.date))throw new Error('تاريخ التحويل غير صالح: '+t.id);});
+ candidate.debts.forEach(d=>{if(d&&d.amount!==undefined&&d.amount!==null)amount(d.amount,'الذمة '+d.id);});candidate.payments.forEach(p=>{if(p&&p.amount!==undefined&&p.amount!==null)amount(p.amount,'التسوية '+p.id);});
+}
 async function parseBackupFile(file){
  if(file.size>MAX_BACKUP_BYTES)throw new Error('حجم الملف يتجاوز الحد المسموح (20 ميغابايت).');
  let obj=JSON.parse(await file.text());
@@ -503,8 +513,8 @@ async function parseBackupFile(file){
   obj=obj.payload;
  }
  if(!obj||!Array.isArray(obj.wallets)||!Array.isArray(obj.transactions))throw new Error('صيغة النسخة غير صحيحة أو غير مدعومة.');
- const legacyWithoutUnit=!Object.prototype.hasOwnProperty.call(obj,'moneyUnit');const candidate={...fresh(),...obj};if(legacyWithoutUnit)candidate.moneyUnit='JOD';if(!['JOD','fils'].includes(candidate.moneyUnit))throw new Error('وحدة المبالغ في النسخة غير معروفة أو غير مدعومة؛ أوقفنا التحويل حفاظًا على القيم الأصلية.');ensureMoneyInFils(candidate);
- backupCollections.forEach(k=>{if(!Array.isArray(candidate[k]))candidate[k]=[];});
+ const legacyWithoutUnit=!Object.prototype.hasOwnProperty.call(obj,'moneyUnit');const candidate={...fresh(),...obj};if(legacyWithoutUnit)candidate.moneyUnit='JOD';if(!['JOD','fils'].includes(candidate.moneyUnit))throw new Error('وحدة المبالغ في النسخة غير معروفة أو غير مدعومة؛ أوقفنا التحويل حفاظًا على القيم الأصلية.');
+ backupCollections.forEach(k=>{if(!Array.isArray(candidate[k]))candidate[k]=[];});validateBackupFinancialRecords(candidate);ensureMoneyInFils(candidate);
  for(const k of backupCollections){const ids=new Set();for(const row of candidate[k]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل غير صالح ضمن '+k);if(ids.has(row.id))throw new Error('معرّف مكرر ضمن '+k+': '+row.id);ids.add(row.id);}}
  const relations=validateDebtRelations(candidate);if(!relations.valid)throw new Error('علاقات الذمم والتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const previous=data;try{data=candidate;const journal=getJournalEntries(),validation=validateJournalEntries(journal);if(!validation.valid)throw new Error('القيود المحاسبية غير متوازنة: '+validation.errors.slice(0,3).join('؛ '));for(const w of data.wallets){if(!walletTimelineValid(w.id))throw new Error('تسلسل رصيد المحفظة غير صالح: '+w.name);} }finally{data=previous;}
  return candidate;
@@ -516,6 +526,10 @@ async function runBackupSelfTests(){
  const basePayload=()=>({...fresh(),wallets:[],transactions:[],transfers:[],debts:[],payments:[],accounts:[],journalEntries:[],audit:[]});
  try{
   data=fresh();
+  const financialFixture=()=>({...basePayload(),wallets:[{id:'valid-wallet',name:'اختبار',opening:1000,created:'2026-01-01'}],accounts:[{id:'valid-expense',name:'مصروف',type:'expense'}],transactions:[{id:'valid-tx',type:'expense',amount:100,walletId:'valid-wallet',accountId:'valid-expense',date:'2026-01-02'}],transfers:[]});
+  let fractionalJodRejected=false;try{const f=financialFixture();f.transactions[0].amount=1.2345;validateBackupFinancialRecords(f);}catch(e){fractionalJodRejected=true;}check('رفض مبلغ JOD بدقة تتجاوز الفلس',fractionalJodRejected,'لا يُقرّب مبلغ النسخة بصمت عند تحويله إلى الفلس');
+  let missingWalletRejected=false;try{const f=financialFixture();f.transactions[0].walletId='missing-wallet';validateBackupFinancialRecords(f);}catch(e){missingWalletRejected=true;}check('رفض معاملة تشير إلى محفظة غير موجودة',missingWalletRejected,'يجب أن تكون كل حركة مالية مرتبطة بمحفظة موجودة');
+  let malformedDateRejected=false;try{const f=financialFixture();f.transactions[0].date='2026-02-31';validateBackupFinancialRecords(f);}catch(e){malformedDateRejected=true;}check('رفض تاريخ مالي غير تقويمي',malformedDateRejected,'لا تُقبل تواريخ غير صحيحة في النسخة المستوردة');
   const payload=basePayload(),serialized=JSON.stringify(payload),checksum=await sha256Hex(serialized);
   const validEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt:'2026-11-26T10:00:00.000Z',checksum,payload};
   let valid=false;try{const x=await parseBackupFile(fileFor(validEnvelope));valid=x.moneyUnit==='fils'&&Array.isArray(x.wallets);}catch(e){}
