@@ -238,12 +238,13 @@ function runLedgerSelfTests(){
   check('رفض مبلغ تسوية صفري أو كسري',!canSettleDebt(sampleGroup,0)&&!canSettleDebt(sampleGroup,1.5),'المبلغ يجب أن يكون عدد فلس صحيحًا موجبًا');
   check('السماح بتسوية جزئية صحيحة',canSettleDebt(sampleGroup,1250),'تسوية جزئية ضمن الرصيد المتبقي');
   check('رفض تسوية بلا ذمة محددة',!canSettleDebt(null,100),'لا توجد مجموعة ذمم صالحة');
-  data={version:2,moneyUnit:'fils',wallets:[{id:'zero-wallet',name:'اختبار الصفر',opening:10000}],accounts:[],debts:[],transactions:[],transfers:[],payments:[],audit:[]};
   data={version:2,moneyUnit:'fils',wallets:[{id:'negative-opening-wallet',name:'اختبار رصيد افتتاحي سالب',opening:-1}],accounts:[],debts:[],transactions:[],transfers:[],payments:[],audit:[]};
   check('رفض رصيد افتتاحي سالب في النسخة أو المحفظة',!walletTimelineValid('negative-opening-wallet'), 'الرصيد الافتتاحي يجب أن يكون عددًا صحيحًا غير سالب');
+  data={version:2,moneyUnit:'fils',wallets:[{id:'zero-wallet',name:'اختبار الصفر',opening:10000}],accounts:[],debts:[],transactions:[],transfers:[],payments:[],audit:[]};
   check('السماح بعملية تخفض الرصيد إلى صفر تمامًا',walletTimelineValid('zero-wallet',{transaction:{id:'zero-expense',type:'expense',amount:10000,walletId:'zero-wallet',date:'2026-03-01',createdAt:'2026-03-01T10:00:00Z'}}),'الرصيد صفر وليس سالبًا');
   data={version:2,moneyUnit:'fils',wallets:[{id:'invalid-amount-wallet',name:'اختبار مبلغ غير صحيح',opening:1000}],accounts:[],debts:[],transactions:[{id:'bad-amount',type:'expense',amount:1.5,walletId:'invalid-amount-wallet',date:'2026-03-01'}],transfers:[],payments:[],audit:[]};
   check('رفض حركة محفظة بمبلغ غير صحيح بوحدة الفلس',!walletTimelineValid('invalid-amount-wallet'),'المبالغ يجب أن تكون أعدادًا صحيحة آمنة بالفلس');
+  data={version:2,moneyUnit:'fils',wallets:[{id:'zero-wallet',name:'اختبار الصفر',opening:10000}],accounts:[],debts:[],transactions:[],transfers:[],payments:[],audit:[]};
   check('رفض تحويل يتجاوز رصيد المحفظة المرسلة',!walletTimelineValid('zero-wallet',{transfer:{id:'over-transfer',from:'zero-wallet',to:'another-wallet',amount:10001,date:'2026-03-01',createdAt:'2026-03-01T10:00:00Z'}}),'المبلغ أكبر من الرصيد المتاح');
   check('الحفاظ على القيود المالية دون زر حذف فعلي',!String(txHtml({id:'posted',type:'income',amount:1000,walletId:'zero-wallet',accountId:'',description:'اختبار',date:'2026-03-01'},true)).includes('data-delete-tx'),'السجلات المعتمدة لا تُمحى من الواجهة');
   data={version:2,moneyUnit:'fils',wallets:[{id:'cancel-wallet',name:'اختبار الإلغاء',opening:50000}],accounts:[{id:'cancel-exp',name:'مصروف',type:'expense'}],debts:[],transactions:[{id:'cancelled-expense',type:'expense',amount:10000,walletId:'cancel-wallet',accountId:'cancel-exp',description:'مصروف تجريبي',date:'2026-04-01',status:'cancelled',cancelledAt:'2026-04-02T10:00:00Z'}],transfers:[],payments:[],audit:[]};
@@ -275,6 +276,16 @@ function runLedgerSelfTests(){
    {id:'later-extra-expense',type:'expense',amount:2000,walletId:'income-cancel-wallet',accountId:'income-cancel-expense',date:'2026-06-03',createdAt:'2026-06-03T09:00:00Z'}
   ],transfers:[],payments:[],audit:[]};
   check('منع إلغاء إيراد يسبب عجزًا في تاريخ لاحق',!walletTimelineValid('income-cancel-wallet',{excludeTransactionId:'income-to-cancel'}),'بدون الإيراد يصبح الرصيد سالبًا بعد المصروفات');
+  // تجميع ذمم الشخص نفسه مع فصل نوع الذمة، واحتساب التسويات ضمن المجموعة.
+  const groupReceivableA={id:'group-ra',type:'receivable',person:'سامي',amount:5000,date:'2026-07-01'};
+  const groupReceivableB={id:'group-rb',type:'receivable',person:'سامي',amount:7000,date:'2026-07-03'};
+  const groupPayable={id:'group-pa',type:'payable',person:'سامي',amount:4000,date:'2026-07-02'};
+  const receivableGroupKey=debtGroupKey(groupReceivableA);
+  data={version:2,moneyUnit:'fils',wallets:[{id:'group-wallet',name:'محفظة التجميع',opening:10000}],accounts:[],debts:[groupReceivableA,groupReceivableB,groupPayable],transactions:[],transfers:[],payments:[{id:'group-payment',groupKey:receivableGroupKey,type:'receivable',person:'سامي',amount:3000,date:'2026-07-04',walletId:'group-wallet'}],audit:[]};
+  const groupedDebts=groupDebts(data.debts);
+  check('تجميع ذمم الشخص الواحد من النوع نفسه',groupedDebts.find(g=>g.type==='receivable')?.amount===12000&&groupedDebts.find(g=>g.type==='receivable')?.remaining===9000,'أصل 12000 والمتبقي 9000 بعد التسوية');
+  check('فصل الذمة المدينة عن الدائنة للشخص نفسه',groupedDebts.length===2&&groupedDebts.find(g=>g.type==='payable')?.remaining===4000,'لا تندمج مستحقات لنا مع مستحقات علينا');
+  check('تقرير الذمم بتاريخ سابق يستبعد الذمم اللاحقة',getDebtReport('2026-07-02').find(g=>g.type==='receivable')?.original===5000,'قبل تسجيل الذمة الثانية في 3 يوليو');
   // اختبار تعارض معرّف الدمج وقبول السجل المطابق تمامًا.
   data={version:2,moneyUnit:'fils',wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],audit:[]};
   const identicalBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}]};
