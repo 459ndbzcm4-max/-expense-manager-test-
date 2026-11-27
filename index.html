@@ -633,6 +633,27 @@ function itemTime(item){const stored=item&&item.createdAt?Date.parse(item.create
 function renderTransactions(){let xs=[...data.transactions].sort(txOrder);if(filter.from)xs=xs.filter(t=>t.date>=filter.from);if(filter.to)xs=xs.filter(t=>t.date<=filter.to);$('txList').innerHTML=xs.length?xs.map(t=>txHtml(t)).join(''):'<div class="empty">لا توجد معاملات مطابقة.</div>';const recent=[...data.transactions].sort(txOrder).slice(0,5);$('recentList').innerHTML=recent.length?recent.map(t=>txHtml(t,false)).join(''):'<div class="empty">لا توجد معاملات بعد.</div>';}
 function renderWallets(){$('transferList').innerHTML=data.transfers.length?[...data.transfers].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{const f=data.wallets.find(w=>w.id===t.from),to=data.wallets.find(w=>w.id===t.to);return '<div class="item"><div class="itemtop"><div><strong>تحويل '+money(t.amount)+'</strong><div class="muted">'+esc(dateDisplay(t.date))+' · '+esc(itemTime(t))+' · من '+esc(f?f.name:'محفظة')+' إلى '+esc(to?to.name:'محفظة')+'</div><div class="muted">رقم الإثبات: '+esc(t.ref)+'</div>'+(t.note?'<div class="muted">'+esc(t.note)+'</div>':'')+'</div><span class="tag">تحويل داخلي</span></div><div class="actions no-print"><button class="btn secondary" data-transfer-proof="'+esc(t.id)+'">عرض إثبات العملية</button></div></div>';}).join(''):'<div class="empty">لا توجد تحويلات مسجلة.</div>';$('walletList').innerHTML=data.wallets.length?data.wallets.map(w=>'<div class="item"><div class="itemtop"><div><strong>'+esc(w.name)+'</strong><div class="muted">الرصيد الافتتاحي: '+money(w.opening)+'</div></div><div class="amount">'+money(balance(w.id))+'</div></div><div class="actions no-print"><button class="btn danger" data-delete-wallet="'+esc(w.id)+'">حذف</button></div></div>').join(''):'<div class="empty">لا توجد محافظ. أضف محفظتك الأولى أعلاه.</div>';}
 function renderTransfers(){$('transferList').innerHTML=data.transfers.length?[...data.transfers].sort((a,b)=>b.date.localeCompare(a.date)).map(t=>{const f=data.wallets.find(w=>w.id===t.from),to=data.wallets.find(w=>w.id===t.to),cancelled=t.status==='cancelled';return '<div class="item"><div class="itemtop"><div><strong>'+esc(f?f.name:'محفظة محذوفة')+' ← '+esc(to?to.name:'محفظة محذوفة')+'</strong><div class="muted">'+esc(dateDisplay(t.date))+' · '+esc(itemTime(t))+' · المرجع '+esc(t.ref)+'</div>'+(t.note?'<div class="muted">'+esc(t.note)+'</div>':'')+(cancelled?'<div class="muted">ملغى بتاريخ '+esc(dateDisplay(t.cancelledDate||t.cancelledAt))+' — '+esc(t.cancelReason||'')+'</div>':'')+'</div><div class="amount">'+money(t.amount)+'</div></div><div class="actions no-print"><button class="btn secondary" data-transfer-receipt="'+esc(t.id)+'">عرض إيصال / طباعة</button>'+(cancelled?'':' <button class="btn danger" data-cancel-transfer="'+esc(t.id)+'">إلغاء التحويل</button>')+'</div></div>';}).join(''):'<div class="empty">لا توجد تحويلات مسجلة.</div>';}
+function validateAccountMutation(accounts,transactions,id,mutation){
+ const account=accounts.find(a=>a.id===id);if(!account)return {valid:false,message:'الحساب غير موجود.'};
+ const used=transactions.some(t=>t.accountId===id);
+ if(mutation.type==='rename'){
+  const name=String(mutation.name||'').trim();if(!name)return {valid:false,message:'اسم الحساب مطلوب.'};
+  if(name.length>60)return {valid:false,message:'اسم الحساب أطول من الحد المسموح.'};
+  if(accounts.some(a=>a.id!==id&&String(a.name||'').trim().toLocaleLowerCase()===name.toLocaleLowerCase()&&accountTypeOf(a)===accountTypeOf(account)))return {valid:false,message:'يوجد حساب آخر بالاسم والنوع نفسيهما.'};
+  return {valid:true,account,name};
+ }
+ if(mutation.type==='changeType'){
+  if(!['income','expense'].includes(mutation.value))return {valid:false,message:'نوع الحساب غير صالح.'};
+  if(used)return {valid:false,message:'لا يمكن تغيير نوع حساب مرتبط بمعاملات محفوظة؛ أنشئ حسابًا جديدًا بالنوع المطلوب حتى تبقى القيود السابقة وتقاريرها صحيحة.'};
+  if(accounts.some(a=>a.id!==id&&String(a.name||'').trim().toLocaleLowerCase()===String(account.name||'').trim().toLocaleLowerCase()&&accountTypeOf(a)===mutation.value))return {valid:false,message:'يوجد حساب آخر بالاسم والنوع المطلوبين.'};
+  return {valid:true,account,value:mutation.value};
+ }
+ if(mutation.type==='delete'){
+  if(used)return {valid:false,message:'لا يمكن حذف حساب مرتبط بمعاملات محفوظة، بما فيها المعاملات الملغاة؛ حفاظًا على السجل المحاسبي.'};
+  return {valid:true,account};
+ }
+ return {valid:false,message:'إجراء الحساب غير معروف.'};
+}
 function renderAccounts(){$('accountList').innerHTML=data.accounts.length?data.accounts.map(a=>'<div class="item"><div class="itemtop"><div><strong>'+esc(a.name)+'</strong><div class="muted">'+(a.type?'حساب '+accountTypeLabel(a.type):'حساب قديم محفوظ'+(accountTypeOf(a)?' — '+accountTypeLabel(accountTypeOf(a)):' — غير مصنف'))+'</div></div><span class="tag">'+esc(accountTypeLabel(accountTypeOf(a)))+'</span></div><div class="actions no-print"><button class="btn secondary" data-rename-account="'+esc(a.id)+'">تعديل الاسم</button><button class="btn secondary" data-type-account="'+esc(a.id)+'">تعديل النوع</button><button class="btn danger" data-delete-account="'+esc(a.id)+'">حذف</button></div></div>').join(''):'<div class="empty">لا توجد حسابات. أضف حساب إيرادات أو مصروفات من النموذج أعلاه.</div>';}
 function renderDebts(){
  const q=($('debtSearch').value||'').trim().toLowerCase(),f=$('debtFilter').value;
@@ -681,6 +702,29 @@ $('txDate').value=today();$('transferDate').value=today();$('debtDate').value=to
  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();const digitStyle=$('digitStyle').value,currencyCode=$('currencyCode').value,currencySymbol=$('currencySymbol').value.trim().replace(/[^\p{L}\p{N}\s.$€£¥₹₩₽-]/gu,'');if(!['arab','latn','arabext'].includes(digitStyle)||!['JOD','USD','SAR','AED','KWD','EGP','EUR','GBP'].includes(currencyCode)||!currencySymbol)return alert('تحقق من نمط الأرقام ورمز العملة.');data.settings={digitStyle,currencyCode,currencySymbol};if(changed('تعديل إعدادات العرض',currencyCode+' / '+digitStyle)){alert('حُفظت إعدادات العرض. لم تتغير القيم المالية أو القيود.');}});
  document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='reports')renderReports();if(b.dataset.tab==='settings')renderSettings();}));
 $('walletForm').addEventListener('submit',e=>{e.preventDefault();const name=$('walletName').value.trim(),opening=amountToFils($('walletOpening').value);if(!name)return;if(!Number.isSafeInteger(opening)||opening<0)return alert('أدخل رصيدًا افتتاحيًا صحيحًا (صفر أو أكثر، وبحد أقصى ثلاث منازل عشرية).');if(data.wallets.some(w=>w.name.toLowerCase()===name.toLowerCase()))return alert('اسم المحفظة موجود مسبقًا.');data.wallets.push({id:uid(),name,opening:opening,created:today()});$('walletForm').reset();$('walletOpening').value='0';changed('إضافة محفظة',name);});
+$('accountList').addEventListener('click',e=>{
+ const button=e.target.closest('button[data-rename-account],button[data-type-account],button[data-delete-account]');if(!button)return;
+ const id=button.dataset.renameAccount||button.dataset.typeAccount||button.dataset.deleteAccount;
+ if(button.dataset.renameAccount!==undefined){
+  const account=data.accounts.find(a=>a.id===id);if(!account)return;
+  const name=prompt('أدخل اسم الحساب الجديد:',account.name||'');if(name===null)return;
+  const result=validateAccountMutation(data.accounts,data.transactions,id,{type:'rename',name});if(!result.valid)return alert(result.message);
+  result.account.name=result.name;if(changed('تعديل اسم حساب',result.name))return;
+  return;
+ }
+ if(button.dataset.typeAccount!==undefined){
+  const account=data.accounts.find(a=>a.id===id);if(!account)return;
+  const current=accountTypeOf(account),choice=prompt('أدخل نوع الحساب: income للإيرادات أو expense للمصروفات',current||'expense');if(choice===null)return;
+  const value=String(choice).trim().toLowerCase();const result=validateAccountMutation(data.accounts,data.transactions,id,{type:'changeType',value});if(!result.valid)return alert(result.message);
+  result.account.type=result.value;if(changed('تعديل نوع حساب',result.value==='income'?'إيرادات':'مصروفات'))return;
+  return;
+ }
+ if(button.dataset.deleteAccount!==undefined){
+  const result=validateAccountMutation(data.accounts,data.transactions,id,{type:'delete'});if(!result.valid)return alert(result.message);
+  if(!confirm('هل تريد حذف الحساب «'+result.account.name+'»؟'))return;
+  data.accounts=data.accounts.filter(a=>a.id!==id);changed('حذف حساب',result.account.name);
+ }
+});
 $('accountForm').addEventListener('submit',e=>{e.preventDefault();const name=$('accountName').value.trim(),type=$('accountType').value;if(!name)return;const existing=data.accounts.find(a=>String(a.name||'').trim().toLocaleLowerCase()===name.toLocaleLowerCase()&&accountTypeOf(a)===type);if(existing){alert('الحساب «'+name+'» موجود بالفعل ضمن '+accountTypeLabel(type)+'. لم تتم إضافة نسخة مكررة. يمكنك تعديل الحساب الموجود من القائمة أدناه.');const card=document.querySelector('[data-rename-account="'+existing.id+'"]');if(card){card.scrollIntoView({behavior:'smooth',block:'center'});card.closest('.item')?.classList.add('account-match');setTimeout(()=>card.closest('.item')?.classList.remove('account-match'),2500);}return;}data.accounts.push({id:uid(),name,type});$('accountName').value='';changed('إضافة حساب',name+' — '+accountTypeLabel(type));});
 $('txType').addEventListener('change',()=>fillSelect('txAccount',accountsForType($('txType').value),'اختر الحساب'));
 $('txForm').addEventListener('submit',e=>{e.preventDefault();const walletId=$('txWallet').value,accountId=$('txAccount').value,amount=amountToFils($('txAmount').value),type=$('txType').value,date=$('txDate').value,description=$('txDesc').value.trim();if(!data.wallets.some(w=>w.id===walletId))return alert('أضف محفظة واخترها أولًا.');if(!accountId)return alert('أضف حسابًا واختره أولًا.');const chosenAccount=data.accounts.find(a=>a.id===accountId);if(chosenAccount&&accountTypeOf(chosenAccount)&&accountTypeOf(chosenAccount)!==type)return alert('نوع الحساب لا يتوافق مع نوع المعاملة. اختر حساب '+accountTypeLabel(type)+'.');if(!Number.isFinite(amount)||amount<=0)return alert('أدخل مبلغًا صحيحًا.');const tx={id:uid(),type,date,createdAt:nextEventTimestamp(),amount,walletId,accountId,description,note:$('txNote').value.trim(),ref:uid()};if(!walletTimelineValid(walletId,{transaction:tx}))return alert('لا يمكن حفظ العملية؛ ستؤدي إلى رصيد سالب في المحفظة في تاريخ العملية أو بعده.');data.transactions.push(tx);$('txForm').reset();$('txDate').value=today();changed('إضافة معاملة',description);});
