@@ -155,45 +155,29 @@ function cancelFinancialTransaction(id,reason){
  }
 }function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
 function walletTimelineValid(wid,extra={}){
- const w=data.wallets.find(x=>x.id===wid);if(!w)return false;
- const opening=Number(w.opening??0);if(!Number.isSafeInteger(opening)||opening<0)return false;
- const events=[];
- data.transactions.filter(t=>t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>{
-  const originalDelta=cashEffect({...t,status:'posted'})*Number(t.amount||0),cancelled=t.status==='cancelled';
-  events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:originalDelta,allowNegative:t.type==='debt_repayment'});
-  if(cancelled){
-   const reversalDate=String(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10);
-   if(reversalDate)events.push({date:reversalDate,time:String(t.cancelledAt||''),id:String(t.id||'')+':reversal',delta:-originalDelta,allowNegative:false});
-  }
- });
- data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{
-  const amount=Number(t.amount||0),date=String(t.date||''),time=String(t.createdAt||''),cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10),cancelTime=String(t.cancelledAt||'');
-  if(t.from===wid)events.push({date,time,id:String(t.id||''),delta:-amount,allowNegative:false});
-  if(t.to===wid)events.push({date,time,id:String(t.id||''),delta:amount,allowNegative:false});
-  if(cancelled&&cancelDate){
-   if(t.from===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:amount,allowNegative:false});
-   if(t.to===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:-amount,allowNegative:false});
-  }
- });
- if(extra.transaction&&extra.transaction.walletId===wid){
-  const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect({...t,status:'posted'})*Number(t.amount||0),allowNegative:t.type==='debt_repayment'});
+  const w=data.wallets.find(x=>x.id===wid);if(!w)return false;
+  const opening=Number(w.opening??0),creationDate=String(w.created||'0000-01-01');if(!Number.isSafeInteger(opening)||opening<0)return false;
+  const events=[{date:creationDate,time:'',id:'opening:'+wid,delta:opening,allowNegative:false}];
+  data.transactions.filter(t=>t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>{
+   const date=String(t.date||'');if(date<creationDate)events.push({invalid:true});
+   const originalDelta=cashEffect({...t,status:'posted'})*Number(t.amount||0),cancelled=t.status==='cancelled';
+   events.push({date,time:String(t.createdAt||''),id:String(t.id||''),delta:originalDelta,allowNegative:t.type==='debt_repayment'});
+   if(cancelled){const reversalDate=String(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10);if(reversalDate)events.push({date:reversalDate,time:String(t.cancelledAt||''),id:String(t.id||'')+':reversal',delta:-originalDelta,allowNegative:false});}
+  });
+  data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{
+   const amount=Number(t.amount||0),date=String(t.date||''),time=String(t.createdAt||''),cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10),cancelTime=String(t.cancelledAt||'');
+   if((t.from===wid||t.to===wid)&&date<creationDate)events.push({invalid:true});
+   if(t.from===wid)events.push({date,time,id:String(t.id||''),delta:-amount,allowNegative:false});
+   if(t.to===wid)events.push({date,time,id:String(t.id||''),delta:amount,allowNegative:false});
+   if(cancelled&&cancelDate){if(t.from===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:amount,allowNegative:false});if(t.to===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:-amount,allowNegative:false});}
+  });
+  if(extra.transaction&&extra.transaction.walletId===wid){const t=extra.transaction,date=String(t.date||'');if(date<creationDate)return false;events.push({date,time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect({...t,status:'posted'})*Number(t.amount||0),allowNegative:t.type==='debt_repayment'});}
+  if(extra.transfer){const t=extra.transfer,date=String(t.date||'');if((t.from===wid||t.to===wid)&&date<creationDate)return false;if(t.from===wid)events.push({date,time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0),allowNegative:false});if(t.to===wid)events.push({date,time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0),allowNegative:false});}
+  if(events.some(e=>e.invalid))return false;
+  events.forEach((e,i)=>e.sequence=i);events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.sequence-b.sequence);
+  let running=0;for(const e of events){if(!Number.isSafeInteger(e.delta))return false;const next=running+e.delta;if(!Number.isSafeInteger(next))return false;if(next<0&&!e.allowNegative&&!(running<0&&e.delta>0))return false;running=next;}return true;
  }
- if(extra.transfer){
-  const t=extra.transfer;
-  if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0),allowNegative:false});
-  if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0),allowNegative:false});
- }
- events.forEach((e,i)=>e.sequence=i);
- events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.sequence-b.sequence);
- let running=opening;
- for(const e of events){
-  if(!Number.isSafeInteger(e.delta))return false;
-  const next=running+e.delta;if(!Number.isSafeInteger(next))return false;
-  if(next<0&&!e.allowNegative&&!(running<0&&e.delta>0))return false;
-  running=next;
- }
- return true;
-}function canSettleDebt(group,amount){return !!group&&Number.isSafeInteger(amount)&&amount>0&&amount<=Number(group.remaining||0);}
+ function canSettleDebt(group,amount){return !!group&&Number.isSafeInteger(amount)&&amount>0&&amount<=Number(group.remaining||0);}
 // طبقة الأستاذ العام: تُشتق القيود من المستندات الحالية دون تغييرها أو حذفها.
 function ledgerAccount(id,name,kind,normalSide,sourceId){return {id,name,kind,normalSide,sourceId:sourceId||null};}
 function getLedgerAccounts(){
@@ -297,6 +281,16 @@ function runLedgerSelfTests(){
   data.transfers[0]={...savedTransfer,date:'2026-02-30'};
   check('رفض تاريخ تحويل غير صالح',!validateJournalEntries().valid,'التاريخ يجب أن يكون يومًا تقويميًا صحيحًا بصيغة YYYY-MM-DD');
   data.transfers[0]=savedTransfer;
+  // تاريخ سريان الرصيد الافتتاحي هو تاريخ إنشاء المحفظة، ويجب أن يتطابق فحص التسلسل مع الأستاذ والتقارير.
+   data={version:2,moneyUnit:'fils',wallets:[{id:'created-date-wallet',name:'محفظة حديثة',opening:10000,created:'2026-11-10'}],accounts:[{id:'created-date-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[],transfers:[],payments:[],audit:[]};
+   check('رفض حركة مؤرخة قبل إنشاء المحفظة',!walletTimelineValid('created-date-wallet',{transaction:{id:'before-wallet-expense',type:'expense',amount:1000,walletId:'created-date-wallet',accountId:'created-date-expense',date:'2026-11-09'}}),'لا يجوز استخدام رصيد افتتاحي لم يكن قد دخل حيز السريان');
+   check('رفض تحويل مؤرخ قبل إنشاء المحفظة',!walletTimelineValid('created-date-wallet',{transfer:{id:'before-wallet-transfer',from:'created-date-wallet',to:'missing-wallet',amount:1000,date:'2026-11-09'}}),'تاريخ التحويل لا يسبق إنشاء المحفظة');
+   const beforeWalletCreation=getBalanceSummary('2026-11-09'),onWalletCreation=getBalanceSummary('2026-11-10');
+   check('الأستاذ لا يظهر الرصيد الافتتاحي قبل إنشاء المحفظة',beforeWalletCreation.accounts.find(a=>a.id==='wallet:created-date-wallet')===undefined&&beforeWalletCreation.balanced,'قبل 10 نوفمبر لا يوجد رصيد افتتاحي');
+   check('الأستاذ يثبت الرصيد الافتتاحي من تاريخ إنشاء المحفظة',onWalletCreation.accounts.find(a=>a.id==='wallet:created-date-wallet')?.balanceMinor===10000&&onWalletCreation.balanced,'من 10 نوفمبر يظهر الرصيد 10000 فلس');
+   const reportBeforeWalletCreation=getWalletMovementReport('2026-11-05','2026-11-09')[0],reportAcrossWalletCreation=getWalletMovementReport('2026-11-05','2026-11-12')[0];
+   check('تقرير الفترة السابقة لإنشاء المحفظة لا يعرض رصيدًا افتتاحيًا',reportBeforeWalletCreation?.opening===0&&reportBeforeWalletCreation?.closing===0,'الرصيد صفر قبل 10 نوفمبر');
+   check('تقرير الفترة التي تشمل إنشاء المحفظة يثبت الرصيد في تاريخ سريانه',reportAcrossWalletCreation?.opening===0&&reportAcrossWalletCreation?.incoming===10000&&reportAcrossWalletCreation?.closing===10000,'الرصيد الافتتاحي يظهر كتدفق داخل الفترة عند إنشائه');
   // إدخال عملية بتاريخ أسبق قد يجعل الرصيد سالبًا مؤقتًا رغم أن الرصيد النهائي موجب.
   data={version:2,moneyUnit:'fils',wallets:[{id:'timeline-wallet',name:'اختبار التسلسل',opening:10000}],accounts:[],debts:[],transactions:[{id:'later-income',type:'income',amount:20000,walletId:'timeline-wallet',date:'2026-02-10',createdAt:'2026-02-10T10:00:00Z'}],transfers:[],payments:[],audit:[]};
   check('السماح بسداد ذمة دائنة رغم سلبية المحفظة',walletTimelineValid('timeline-wallet',{transaction:{id:'payable-repayment-negative',type:'debt_repayment',amount:15000,walletId:'timeline-wallet',date:'2026-02-05',createdAt:'2026-02-05T10:00:00Z'}}),'السداد مسموح وفق قاعدة المشروع حتى لو أصبح الرصيد -5000 فلس');
@@ -624,28 +618,27 @@ function renderDebts(){
  $('dueList').innerHTML=dueGroups.length?dueGroups.map(g=>{const due=g.debts.filter(d=>d.due).sort((a,b)=>String(a.due).localeCompare(String(b.due)));const first=due[0];return '<div class="item"><strong>'+esc(g.person)+'</strong> — '+money(g.remaining)+'<div class="muted">'+(first.due<today()?'لديه استحقاق متأخر منذ: ':'أقرب استحقاق: ')+esc(dateDisplay(first.due))+(g.phone?' · <a href="tel:'+esc(g.phone)+'">اتصال</a>':'')+'</div></div>';}).join(''):'<div class="empty">لا توجد ذمم مستحقة مسجلة.</div>';
 }function getIncomeReport(from,to,walletId,accountId){const rows=data.transactions.filter(t=>isFinancialActive(t)&&(!from||t.date>=from)&&(!to||t.date<=to)&&(!walletId||t.walletId===walletId)&&(!accountId||t.accountId===accountId)&&(t.type==='income'||t.type==='expense'));const income=rows.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount||0),0),expense=rows.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount||0),0);return {rows,income,expense,net:income-expense};}
 function getWalletMovementReport(from,to){
- const end=to||'9999-12-31';
- return data.wallets.map(w=>{
-  let opening=Number(w.opening)||0,incoming=0,outgoing=0,transferIn=0,transferOut=0;
-  const add=(delta)=>{if(delta>0)incoming+=delta;else if(delta<0)outgoing+=-delta;};
-  data.transactions.filter(t=>t.walletId===w.id).forEach(t=>{
-   const date=String(t.date||''),amount=Number(t.amount||0),effect=cashEffect({...t,status:'posted'}),delta=effect*amount;
-   const cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10);
-   if(from&&date<from){if(!cancelled||cancelDate>=from)opening+=delta;}
-   else if(date<=end)add(delta);
-   if(cancelled&&cancelDate&&cancelDate<=end&&(!from||cancelDate>=from))add(-delta);
+  const end=to||'9999-12-31';
+  return data.wallets.map(w=>{
+   const creationDate=String(w.created||'0000-01-01'),openingAmount=Number(w.opening)||0;
+   let opening=openingAmount,incoming=0,outgoing=0,transferIn=0,transferOut=0;
+   const add=delta=>{if(delta>0)incoming+=delta;else if(delta<0)outgoing+=-delta;};
+   if(creationDate>end)opening=0;else if(from&&from<creationDate){opening=0;add(openingAmount);}
+   data.transactions.filter(t=>t.walletId===w.id).forEach(t=>{
+    const date=String(t.date||''),amount=Number(t.amount||0),effect=cashEffect({...t,status:'posted'}),delta=effect*amount,cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10);
+    if(from&&date<from){if(!cancelled||cancelDate>=from)opening+=delta;}else if(date<=end)add(delta);
+    if(cancelled&&cancelDate&&cancelDate<=end&&(!from||cancelDate>=from))add(-delta);
+   });
+   data.transfers.filter(t=>t.from===w.id||t.to===w.id).forEach(t=>{
+    const date=String(t.date||''),amount=Number(t.amount||0),delta=t.to===w.id?amount:-amount,cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10);
+    if(from&&date<from){if(!cancelled||cancelDate>=from)opening+=delta;}else if(date<=end)add(delta);
+    if((!from||date>=from)&&date<=end){if(t.to===w.id)transferIn+=amount;if(t.from===w.id)transferOut+=amount;}
+    if(cancelled&&cancelDate&&cancelDate<=end&&(!from||cancelDate>=from)){add(-delta);if(t.from===w.id)transferIn+=amount;if(t.to===w.id)transferOut+=amount;}
+   });
+   return {id:w.id,name:w.name,opening,incoming,outgoing,closing:opening+incoming-outgoing,transferIn,transferOut};
   });
-  data.transfers.filter(t=>t.from===w.id||t.to===w.id).forEach(t=>{
-   const date=String(t.date||''),amount=Number(t.amount||0),delta=t.to===w.id?amount:-amount,cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10);
-   if(from&&date<from){if(!cancelled||cancelDate>=from)opening+=delta;}
-   else if(date<=end)add(delta);
-   if((!from||date>=from)&&date<=end){if(t.to===w.id)transferIn+=amount;if(t.from===w.id)transferOut+=amount;}
-   if(cancelled&&cancelDate&&cancelDate<=end&&(!from||cancelDate>=from)){add(-delta);if(t.from===w.id)transferIn+=amount;if(t.to===w.id)transferOut+=amount;}
-  });
-  return {id:w.id,name:w.name,opening,incoming,outgoing,closing:opening+incoming-outgoing,transferIn,transferOut};
- });
-}
-function getBalanceSummary(asOf){const entries=getJournalEntries().filter(e=>!asOf||e.date<=asOf),accounts=getLedgerBalances(entries);const debit=accounts.reduce((s,a)=>s+a.debitMinor,0),credit=accounts.reduce((s,a)=>s+a.creditMinor,0);return {accounts,debit,credit,balanced:debit===credit,validation:validateJournalEntries(entries)};}
+ }
+ function getBalanceSummary(asOf){const entries=getJournalEntries().filter(e=>!asOf||e.date<=asOf),accounts=getLedgerBalances(entries);const debit=accounts.reduce((s,a)=>s+a.debitMinor,0),credit=accounts.reduce((s,a)=>s+a.creditMinor,0);return {accounts,debit,credit,balanced:debit===credit,validation:validateJournalEntries(entries)};}
 function getDebtReport(asOf){
  const debts=data.debts.filter(d=>isFinancialActiveAt(d,asOf)),keys=new Set(debts.map(debtGroupKey)),groups=new Map();
  debts.forEach(d=>{const key=debtGroupKey(d);if(!groups.has(key))groups.set(key,{key,type:d.type,person:d.person,original:0,paid:0,remaining:0});groups.get(key).original+=Number(d.amount||0);});
