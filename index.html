@@ -179,6 +179,18 @@ function validateJournalEntries(entries=getJournalEntries()){
  const errors=[];const accounts=new Set(getLedgerAccounts().map(a=>a.id));
  entries.forEach(e=>{let debit=0,credit=0;if(!e.lines||e.lines.length<2)errors.push('قيد بلا طرفين: '+e.id);(e.lines||[]).forEach(l=>{debit+=l.debitMinor;credit+=l.creditMinor;if(!accounts.has(l.accountId))errors.push('حساب غير معروف '+l.accountId+' في '+e.id);if(!Number.isSafeInteger(l.debitMinor)||!Number.isSafeInteger(l.creditMinor)||l.debitMinor<0||l.creditMinor<0||((l.debitMinor>0)===(l.creditMinor>0)))errors.push('سطر قيد غير صالح في '+e.id);});if(debit!==credit)errors.push('القيد غير متوازن '+e.id+': '+debit+' / '+credit);});
  data.transactions.filter(t=>isFinancialActive(t)&&(t.type==='income'||t.type==='expense')).forEach(t=>{const account=data.accounts.find(a=>a.id===t.accountId),actual=accountTypeOf(account);if(actual&&actual!==t.type)errors.push('نوع الحساب لا يطابق نوع العملية '+t.id+': '+actual+' / '+t.type);});
+ const walletIds=new Set(data.wallets.map(w=>w.id)),transferIds=new Set();
+ data.transfers.forEach(t=>{
+  if(!t||typeof t.id!=='string'||!t.id.trim())errors.push('تحويل بلا معرّف صالح');
+  else if(transferIds.has(t.id))errors.push('معرّف تحويل مكرر: '+t.id);else transferIds.add(t.id);
+  if(!t||typeof t.from!=='string'||!walletIds.has(t.from))errors.push('محفظة مصدر غير موجودة في التحويل '+(t&&t.id||'غير معروف'));
+  if(!t||typeof t.to!=='string'||!walletIds.has(t.to))errors.push('محفظة مستقبلة غير موجودة في التحويل '+(t&&t.id||'غير معروف'));
+  if(t&&t.from===t.to)errors.push('لا يجوز التحويل إلى المحفظة نفسها: '+(t.id||'غير معروف'));
+  if(!t||!Number.isSafeInteger(t.amount)||t.amount<=0)errors.push('مبلغ تحويل غير صالح: '+(t&&t.id||'غير معروف'));
+  const date=t&&t.date;
+  const validDate=typeof date==='string'&&/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)&&!Number.isNaN(Date.parse(date))&&new Date(date+'T00:00:00Z').toISOString().slice(0,10)===date;
+  if(!validDate)errors.push('تاريخ تحويل غير صالح: '+(t&&t.id||'غير معروف'));
+ });
  return {valid:errors.length===0,entryCount:entries.length,errorCount:errors.length,errors};
 }
 function runLedgerSelfTests(){
@@ -211,6 +223,17 @@ function runLedgerSelfTests(){
   check('التحويل لا يؤثر على إجمالي النقدية',byId.get('wallet:test-wa').balanceMinor+byId.get('wallet:test-wb').balanceMinor===117000,'المتوقع 117000 فلس');
   const transferEntry=entries.find(e=>e.id==='transfer:test-tr');
   check('قيد التحويل مدين للمحفظة المستلمة ودائن للمحفظة المرسلة',!!transferEntry&&transferEntry.lines.length===2&&transferEntry.lines[0].accountId==='wallet:test-wb'&&transferEntry.lines[0].debitMinor===10000&&transferEntry.lines[0].creditMinor===0&&transferEntry.lines[1].accountId==='wallet:test-wa'&&transferEntry.lines[1].debitMinor===0&&transferEntry.lines[1].creditMinor===10000,'التحويل ينقل القيمة بين محفظتين ولا يصنف إيرادًا أو مصروفًا');
+  const transferIncome=getIncomeReport('2026-01-01','2026-01-31');
+  check('التحويل مستبعد من كشف الإيرادات والمصروفات',transferIncome.income===25000&&transferIncome.expense===10000,'يبقى صافي التشغيل 15000 فلس ولا يدخل التحويل ضمنه');
+  const transferMovement=getWalletMovementReport('2026-01-08','2026-01-08');
+  check('تقرير حركة المحافظ يطابق أرصدة الأستاذ بعد التحويل',transferMovement.find(w=>w.id==='test-wa')?.closing===byId.get('wallet:test-wa')?.balanceMinor&&transferMovement.find(w=>w.id==='test-wb')?.closing===byId.get('wallet:test-wb')?.balanceMinor,'الأرصدة الختامية في التقرير تطابق حسابي المحفظتين في الأستاذ');
+  const savedTransfer=data.transfers[0];data.transfers[0]={...savedTransfer,from:'test-wa',to:'test-wa'};
+  check('رفض تحويل إلى المحفظة نفسها',!validateJournalEntries().valid,'حتى لو بقي القيد متوازنًا حسابيًا');
+  data.transfers[0]={...savedTransfer,to:'missing-wallet'};
+  check('رفض تحويل إلى محفظة غير موجودة',!validateJournalEntries().valid,'يجب أن يكون طرفا التحويل معرفين في سجل المحافظ');
+  data.transfers[0]={...savedTransfer,date:'2026-02-30'};
+  check('رفض تاريخ تحويل غير صالح',!validateJournalEntries().valid,'التاريخ يجب أن يكون يومًا تقويميًا صحيحًا بصيغة YYYY-MM-DD');
+  data.transfers[0]=savedTransfer;
   // إدخال عملية بتاريخ أسبق قد يجعل الرصيد سالبًا مؤقتًا رغم أن الرصيد النهائي موجب.
   data={version:2,moneyUnit:'fils',wallets:[{id:'timeline-wallet',name:'اختبار التسلسل',opening:10000}],accounts:[],debts:[],transactions:[{id:'later-income',type:'income',amount:20000,walletId:'timeline-wallet',date:'2026-02-10',createdAt:'2026-02-10T10:00:00Z'}],transfers:[],payments:[],audit:[]};
   check('السماح بسداد ذمة دائنة رغم سلبية المحفظة',walletTimelineValid('timeline-wallet',{transaction:{id:'payable-repayment-negative',type:'debt_repayment',amount:15000,walletId:'timeline-wallet',date:'2026-02-05',createdAt:'2026-02-05T10:00:00Z'}}),'السداد مسموح وفق قاعدة المشروع حتى لو أصبح الرصيد -5000 فلس');
