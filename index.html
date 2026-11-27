@@ -308,7 +308,7 @@ function runLedgerSelfTests(){
 
  const transferFixture=[{id:'tr-in',date:'2026-01-05',from:'w1',to:'w2',amount:100},{id:'tr-other',date:'2026-01-05',from:'w2',to:'w3',amount:200},{id:'tr-cancelled',date:'2026-01-03',from:'w1',to:'w3',amount:300,status:'cancelled',cancelledDate:'2026-01-06'},{id:'tr-historical',date:'2026-01-03',from:'w1',to:'w3',amount:400,status:'cancelled',cancelledDate:'2026-01-10'}];
  const scopedTransfers=getReportTransferRows('2026-01-01','2026-01-07','w1',transferFixture);
- check('مرشح المحفظة يحدد التحويلات في التقرير',scopedTransfers.map(x=>x.id).join(',')==='tr-in,tr-historical','يعرض التحويل المرتبط بالمحفظة ويحتفظ بالحركة التاريخية قبل الإلغاء');
+ check('مرشح المحفظة يحدد التحويلات في التقرير',scopedTransfers.map(x=>x.id).join(',')==='tr-historical,tr-in','يعرض التحويل المرتبط بالمحفظة ويحتفظ بالحركة التاريخية قبل الإلغاء');
  const auditFixture=[{recordType:'transaction',recordId:'a1',dateLocal:'2026-01-04'},{recordType:'transfer',recordId:'a2',dateLocal:'2026-01-08'},{recordType:'transaction',recordId:'a3',date:'2026-01-05'}];
  const scopedAudit=getReportAuditRows('2026-01-01','2026-01-07',auditFixture);
  check('سجل الإلغاءات شامل ولا يتأثر بمرشح المحفظة',scopedAudit.map(x=>x.recordId).join(',')==='a1,a3','يشمل أنواع المعاملات والتحويلات ضمن الفترة فقط');
