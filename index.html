@@ -391,6 +391,25 @@ function runLedgerSelfTests(){
   check('الرصيد التاريخي قبل يوم الإلغاء يحتفظ بأثر العملية',beforeCancel===40000,'الرصيد قبل الإلغاء 40000 فلس');
   check('الرصيد التاريخي من يوم الإلغاء يعكس العملية',onCancel===50000,'الرصيد من يوم الإلغاء 50000 فلس');
   check('إنشاء قيد عكسي واحد فقط لكل إلغاء',historicalEntries.filter(e=>e.id==='reversal:history-cancel-tx').length===1,'يجب ألا يتكرر القيد العكسي عند إعادة اشتقاق الأستاذ');
+
+  // اختبار تراكمي لعدة أنواع من العمليات الملغاة في الأستاذ وميزان الأرصدة التاريخي.
+  const batchDebt={id:'batch-cancel-debt',type:'receivable',person:'اختبار الإلغاء المتعدد',amount:4000,date:'2026-10-01',status:'cancelled',cancelledDate:'2026-10-05',transactionId:'batch-debt-origin'};
+  const batchKey=debtGroupKey(batchDebt);
+  data={version:2,moneyUnit:'fils',wallets:[{id:'batch-cancel-wallet',name:'محفظة الإلغاء المتعدد',opening:100000,created:'2026-10-01'}],accounts:[{id:'batch-income-account',name:'إيراد اختبار',type:'income'},{id:'batch-expense-account',name:'مصروف اختبار',type:'expense'}],debts:[batchDebt],transactions:[
+   {id:'batch-income',type:'income',amount:5000,walletId:'batch-cancel-wallet',accountId:'batch-income-account',date:'2026-10-01',status:'cancelled',cancelledDate:'2026-10-05'},
+   {id:'batch-expense',type:'expense',amount:3000,walletId:'batch-cancel-wallet',accountId:'batch-expense-account',date:'2026-10-02',status:'cancelled',cancelledDate:'2026-10-05'},
+   {id:'batch-debt-origin',type:'debt_out',amount:4000,walletId:'batch-cancel-wallet',debtId:batchDebt.id,date:'2026-10-03',status:'cancelled',cancelledDate:'2026-10-05'},
+   {id:'batch-debt-collection',type:'debt_collection',amount:1000,walletId:'batch-cancel-wallet',debtGroupKey:batchKey,date:'2026-10-04',status:'cancelled',cancelledDate:'2026-10-05'}
+  ],transfers:[],payments:[{id:'batch-cancel-payment',groupKey:batchKey,type:'receivable',person:batchDebt.person,amount:1000,date:'2026-10-04',walletId:'batch-cancel-wallet',transactionId:'batch-debt-collection',status:'cancelled',cancelledDate:'2026-10-05'}],audit:[]};
+  const batchEntries=getJournalEntries(),batchReversals=batchEntries.filter(e=>e.sourceType==='transaction_reversal'),batchValidation=validateJournalEntries(batchEntries);
+  const batchBefore=getBalanceSummary('2026-10-04').accounts.find(a=>a.id==='wallet:batch-cancel-wallet')?.balanceMinor;
+  const batchAfter=getBalanceSummary('2026-10-05').accounts.find(a=>a.id==='wallet:batch-cancel-wallet')?.balanceMinor;
+  const batchWalletNow=getLedgerBalances().find(a=>a.id==='wallet:batch-cancel-wallet')?.balanceMinor;
+  check('إنشاء قيد عكسي واحد لكل عملية ملغاة ضمن مجموعة متعددة الأنواع',batchReversals.length===4&&['batch-income','batch-expense','batch-debt-origin','batch-debt-collection'].every(id=>batchReversals.filter(e=>e.id==='reversal:'+id).length===1),'المتوقع أربعة قيود عكسية: إيراد ومصروف وإنشاء ذمة وتحصيل');
+  check('كل قيود المجموعة المتعددة متوازنة',batchValidation.valid&&batchValidation.entryCount===9,batchValidation.errors.join(' | '));
+  check('مطابقة كل قيد عكسي للأصل في المجموعة المتعددة',batchReversals.every(r=>{const o=batchEntries.find(e=>e.id==='transaction:'+r.sourceId);return !!o&&o.lines.length===r.lines.length&&o.lines.every((l,i)=>l.accountId===r.lines[i].accountId&&l.debitMinor===r.lines[i].creditMinor&&l.creditMinor===r.lines[i].debitMinor); }),'يجب أن يعكس كل سطر حسابه ومبلغيه دون تغيير الحساب');
+  check('حفظ ميزان الأرصدة قبل يوم الإلغاء',batchBefore===99000,'الرصيد التاريخي قبل الإلغاء 99000 فلس');
+  check('عودة ميزان الأرصدة في يوم الإلغاء',batchAfter===100000&&batchWalletNow===100000,'الرصيد من يوم الإلغاء والحالي 100000 فلس');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
