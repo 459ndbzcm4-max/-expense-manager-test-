@@ -528,6 +528,22 @@ function runLedgerSelfTests(){
   check('المحفظة المستقبلة تعرض التحويل الأصلي والعكس ضمن فترتيهما',rangeReceiver?.opening===30000&&rangeReceiver?.outgoing===30000&&rangeReceiver?.transferOut===30000&&rangeReceiver?.closing===0,'افتتاحي 30000 ثم خروج عكسي 30000');
   const overlapSummary=getBalanceSummary('2026-06-06'),overlapLedger=overlapSummary.accounts.find(a=>a.id==='wallet:overlap-a');
   check('الرصيد الختامي للتقرير يطابق الأستاذ التاريخي',overlapSummary.balanced&&overlapLedger?.balanceMinor===rangeB?.closing&&balance('overlap-a')===113000,'ميزان متوازن ورصيد المحفظة 113000 فلس');
+  // اختبار تطابق التصدير والطباعة مع حركة المحافظ التاريخية عند إلغاء تحويل.
+  const csvAudit={id:'csv-audit',date:'2026-06-06T09:00:00.000Z',dateLocal:'2026-06-06',action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:'csv-tr',reason:'اختبار تصدير التقرير'};
+  data={version:2,moneyUnit:'fils',wallets:[{id:'csv-a',name:'محفظة أ',opening:100000,created:'2026-06-01'},{id:'csv-b',name:'محفظة ب',opening:0,created:'2026-06-01'}],accounts:[{id:'csv-income',name:'إيراد',type:'income'},{id:'csv-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
+   {id:'csv-inc',type:'income',amount:5000,walletId:'csv-a',accountId:'csv-income',date:'2026-06-04'},
+   {id:'csv-exp',type:'expense',amount:2000,walletId:'csv-a',accountId:'csv-expense',date:'2026-06-05'}
+  ],transfers:[{id:'csv-tr',from:'csv-a',to:'csv-b',amount:30000,date:'2026-06-02',status:'cancelled',cancelledAt:csvAudit.date,cancelledDate:csvAudit.dateLocal,cancelledBy:'local_owner',cancelReason:csvAudit.reason}],payments:[],audit:[csvAudit]};
+  const csvBefore=getWalletMovementReport('2026-06-04','2026-06-05').find(w=>w.id==='csv-a');
+  const csvCancel=getWalletMovementReport('2026-06-06','2026-06-06').find(w=>w.id==='csv-a');
+  const csvWhole=getWalletMovementReport('2026-06-02','2026-06-06').find(w=>w.id==='csv-a');
+  const csvRows=walletMovementCsvRows(getWalletMovementReport('2026-06-04','2026-06-06'));
+  check('التقرير التاريخي يعرض رصيد نهاية الفترة لا الرصيد الحالي',csvBefore?.closing===73000,'رصيد نهاية 5 يونيو 73000 فلس رغم أن الرصيد الحالي بعد الإلغاء 103000');
+  check('رصيد نهاية الفترة الأولى يرحّل إلى افتتاح الفترة التالية',csvBefore?.closing===csvCancel?.opening,'73000 فلس في طرفي الترحيل');
+  check('تصدير CSV يتضمن صفوف المحافظ والأرصدة',csvRows.length===4&&csvRows[2][0]==='محفظة أ'&&csvRows[2][4]===money(73000)&&csvRows[3][0]==='محفظة ب','صف مستقل لكل محفظة مع افتتاحي ومقبوضات ومدفوعات وختامي');
+  check('تصدير CSV يفصل التحويلات عن المقبوضات والمدفوعات',csvRows[2][2]===money(5000)&&csvRows[2][3]===money(2000)&&csvRows[2][5]===money(0)&&csvRows[3][6]===money(30000),'لا يصنف عكس التحويل دخلًا تشغيليًا');
+  const csvSummary=getBalanceSummary('2026-06-06'),csvLedger=csvSummary.accounts.find(a=>a.id==='wallet:csv-a');
+  check('رصيد نهاية الفترة يطابق الأستاذ والرصيد النهائي',csvWhole?.closing===103000&&csvLedger?.balanceMinor===103000&&balance('csv-a')===103000&&csvSummary.balanced,'103000 فلس مع توازن القيود');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
