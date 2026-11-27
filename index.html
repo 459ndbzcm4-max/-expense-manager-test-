@@ -623,6 +623,9 @@ function runLedgerSelfTests(){
   const identicalBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة الدمج',opening:1000}]};
   let identicalAccepted=true;try{validateMerge(identicalBackup);}catch(e){identicalAccepted=false;}
   check('قبول المعرّف المتطابق بمحتوى مطابق عند الدمج',identicalAccepted,'لا ينشأ سجل مكرر ولا تعارض');
+  const reorderedBackup={...fresh(),wallets:[{opening:1000,name:'محفظة الدمج',id:'merge-wallet'}]};
+  let reorderedAccepted=true;try{validateMerge(reorderedBackup);}catch(e){reorderedAccepted=false;}
+  check('قبول السجل المطابق رغم اختلاف ترتيب خصائص JSON',reorderedAccepted,'ترتيب الخصائص لا يُعد اختلافًا في محتوى السجل');
   const conflictingBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة مختلفة',opening:1000}]};
   let conflictingRejected=false;try{validateMerge(conflictingBackup);}catch(e){conflictingRejected=true;}
   check('رفض تعارض المعرّف بمحتوى مختلف عند الدمج',conflictingRejected,'يُمنع استبدال سجل قائم بصمت');
@@ -1313,6 +1316,11 @@ async function runBackupSelfTests(){
  finally{data=original;dirty=originalDirty;committedDataSnapshot=originalCommitted;window.prompt=oldPrompt;}
  return results;
 }
+function stableJsonForMerge(value){
+ if(Array.isArray(value))return '['+value.map(stableJsonForMerge).join(',')+']';
+ if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+stableJsonForMerge(value[key])).join(',')+'}';
+ return JSON.stringify(value);
+}
 function validateMerge(candidate){
  const conflicts=[],invalidIds=[];
  backupCollections.forEach(k=>{
@@ -1320,8 +1328,8 @@ function validateMerge(candidate){
   if(!Array.isArray(currentRows)||!Array.isArray(incomingRows)){invalidIds.push(k+':مجموعة غير صالحة');return;}
   const collectIds=(rows,label)=>{const seen=new Set();rows.forEach((row,index)=>{const id=row&&typeof row.id==='string'?row.id.trim():'';if(!id){invalidIds.push(k+':'+label+'#'+(index+1)+' بلا معرّف');return;}if(seen.has(id))invalidIds.push(k+':'+label+' معرّف مكرر '+id);seen.add(id);});};
   collectIds(currentRows,'الحالي');collectIds(incomingRows,'الوارد');
-  const current=new Map(currentRows.filter(x=>x&&x.id).map(x=>[x.id,JSON.stringify(x)]));
-  incomingRows.forEach(x=>{if(x&&x.id&&current.has(x.id)&&current.get(x.id)!==JSON.stringify(x))conflicts.push(k+':'+x.id);});
+  const current=new Map(currentRows.filter(x=>x&&x.id).map(x=>[x.id,stableJsonForMerge(x)]));
+  incomingRows.forEach(x=>{if(x&&x.id&&current.has(x.id)&&current.get(x.id)!==stableJsonForMerge(x))conflicts.push(k+':'+x.id);});
  });
  if(invalidIds.length)throw new Error('تعذر الدمج بسبب معرّفات مفقودة أو مكررة: '+invalidIds.slice(0,5).join('، '));
  if(conflicts.length)throw new Error('تعارض معرّفات بسجلات مختلفة؛ لم يتم الدمج: '+conflicts.slice(0,5).join('، '));
