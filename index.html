@@ -965,6 +965,8 @@ async function runBackupSelfTests(){
   data={...basePayload(),wallets:[{id:'dup-current-wallet',name:'أ'},{id:'dup-current-wallet',name:'ب'}]};
   let duplicateCurrentRejected=false;try{validateMerge({...basePayload(),wallets:[{id:'new-merge-wallet',name:'جديد'}]});}catch(e){duplicateCurrentRejected=String(e.message).includes('معرّف مكرر');}
   check('رفض الدمج إذا كانت البيانات المحلية نفسها تحتوي معرّفًا مكررًا',duplicateCurrentRejected,'يوقف الدمج بدل البناء فوق حالة محلية ملتبسة');
+  const mergeMissingAudit=basePayload();delete mergeMissingAudit.audit;let mergeMissingAuditRejected=false;try{validateBackupCollections(mergeMissingAudit);}catch(e){mergeMissingAuditRejected=true;}
+  check('رفض نتيجة دمج تفتقد مجموعة التدقيق',mergeMissingAuditRejected,'تُفحص المجموعات الثماني المطلوبة في نتيجة الدمج قبل اعتمادها');
   const cancelledTransferFixture=()=>{const p=basePayload();p.wallets=[{id:'cancel-a',name:'مصدر',opening:5000},{id:'cancel-b',name:'مستقبل',opening:0}];p.transfers=[{id:'cancel-transfer',from:'cancel-a',to:'cancel-b',amount:1000,date:'2026-11-01',status:'cancelled',cancelledAt:'2026-11-02T08:15:00.000Z',cancelledDate:'2026-11-02',cancelledBy:'local_owner',cancelReason:'اختبار الإلغاء'}];p.audit=[{id:'cancel-audit',date:'2026-11-02T08:15:00.000Z',dateLocal:'2026-11-02',action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:'cancel-transfer',actor:'local_owner',reason:'اختبار الإلغاء',newValues:{status:'cancelled',cancelledBy:'local_owner',cancelReason:'اختبار الإلغاء'}}];return p;};
   const cancelledTransactionPayload=basePayload();
    cancelledTransactionPayload.wallets=[{id:'cancel-tx-wallet',name:'محفظة المعاملة',opening:5000}];
@@ -1070,7 +1072,6 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
  if(importMode==='merge'){
   validateMerge(candidate);
   const merged=JSON.parse(JSON.stringify(data));backupCollections.forEach(k=>{const ids=new Set(merged[k].map(x=>x.id));candidate[k].forEach(x=>{if(!ids.has(x.id)){merged[k].push(x);ids.add(x.id);}});});
-let invalidMergeCollectionsRejected=false;try{const incompleteMerge={...fresh(),wallets:[],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[]};validateBackupCollections(incompleteMerge);}catch(e){invalidMergeCollectionsRejected=true;}check('رفض دمج حالة محلية تفتقد مجموعة بيانات مطلوبة',invalidMergeCollectionsRejected,'تُفحص المجموعات الثماني في النتيجة الكاملة قبل اعتماد الدمج');
     validateBackupCollections(merged);validateBackupFinancialRecords(merged);const relations=validateDebtRelations(merged);if(!relations.valid)throw new Error('الدمج ينتج علاقات ذمم وتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const prior=data;data=merged;try{const v=validateJournalEntries(getJournalEntries());if(!v.valid)throw new Error('الدمج ينتج قيودًا غير متوازنة.');for(const w of data.wallets)if(!walletTimelineValid(w.id))throw new Error('الدمج يؤدي إلى رصيد نقدي سالب أو تسلسل غير صالح.');}finally{data=prior;}
   if(!confirm(summary+'\n\nسيُضاف فقط ما لا يتعارض من السجلات. هل تعتمد الدمج؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
