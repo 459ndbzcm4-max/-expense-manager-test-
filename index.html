@@ -410,6 +410,19 @@ function runLedgerSelfTests(){
   check('مطابقة كل قيد عكسي للأصل في المجموعة المتعددة',batchReversals.every(r=>{const o=batchEntries.find(e=>e.id==='transaction:'+r.sourceId);return !!o&&o.lines.length===r.lines.length&&o.lines.every((l,i)=>l.accountId===r.lines[i].accountId&&l.debitMinor===r.lines[i].creditMinor&&l.creditMinor===r.lines[i].debitMinor); }),'يجب أن يعكس كل سطر حسابه ومبلغيه دون تغيير الحساب');
   check('حفظ ميزان الأرصدة قبل يوم الإلغاء',batchBefore===99000,'الرصيد التاريخي قبل الإلغاء 99000 فلس');
   check('عودة ميزان الأرصدة في يوم الإلغاء',batchAfter===100000&&batchWalletNow===100000,'الرصيد من يوم الإلغاء والحالي 100000 فلس');
+
+  // التاريخية في تقرير حركة المحفظة: لا يُستبعد أصل المعاملة قبل تاريخ إلغائها.
+  data={version:2,moneyUnit:'fils',wallets:[{id:'wallet-history-report',name:'محفظة تقرير تاريخي',opening:50000,created:'2026-03-01'}],accounts:[{id:'history-report-expense',name:'مصروف تاريخي',type:'expense'}],debts:[],transactions:[
+   {id:'history-report-cancelled',type:'expense',amount:10000,walletId:'wallet-history-report',accountId:'history-report-expense',date:'2026-03-10',status:'cancelled',cancelledDate:'2026-03-12'}
+  ],transfers:[],payments:[],audit:[]};
+  const reportBeforeCancel=getWalletMovementReport('2026-03-01','2026-03-11')[0];
+  const reportOnCancel=getWalletMovementReport('2026-03-01','2026-03-12')[0];
+  const reportAfterCancel=getWalletMovementReport('2026-03-13','2026-03-31')[0];
+  const reportCurrent=getWalletMovementReport(null,null)[0];
+  check('تقرير المحفظة قبل الإلغاء يطابق الأستاذ التاريخي',reportBeforeCancel?.closing===40000&&getBalanceSummary('2026-03-11').accounts.find(a=>a.id==='wallet:wallet-history-report')?.balanceMinor===40000,'قبل الإلغاء 40000 فلس في التقرير والأستاذ');
+  check('تقرير المحفظة في يوم الإلغاء يعرض الحركة العكسية',reportOnCancel?.closing===50000&&reportOnCancel?.incoming===10000&&reportOnCancel?.outgoing===10000,'قيد المصروف الأصلي ثم عكسه في 12 مارس؛ الرصيد 50000');
+  check('تقرير المحفظة بعد الإلغاء يبدأ بالرصيد المستعاد',reportAfterCancel?.opening===50000&&reportAfterCancel?.closing===50000,'رصيد أول الفترة وآخرها 50000 فلس');
+  check('التقرير الحالي يتطابق مع الرصيد المحاسبي الحالي',reportCurrent?.closing===balance('wallet-history-report')&&reportCurrent?.closing===getLedgerBalances().find(a=>a.id==='wallet:wallet-history-report')?.balanceMinor,'تطابق التقرير ودالة الرصيد والأستاذ بعد الإلغاء');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
@@ -444,7 +457,28 @@ function renderDebts(){
  const dueGroups=groupDebts(data.debts).filter(g=>g.remaining>0&&g.debts.some(d=>d.due));
  $('dueList').innerHTML=dueGroups.length?dueGroups.map(g=>{const due=g.debts.filter(d=>d.due).sort((a,b)=>String(a.due).localeCompare(String(b.due)));const first=due[0];return '<div class="item"><strong>'+esc(g.person)+'</strong> — '+money(g.remaining)+'<div class="muted">'+(first.due<today()?'لديه استحقاق متأخر منذ: ':'أقرب استحقاق: ')+esc(dateDisplay(first.due))+(g.phone?' · <a href="tel:'+esc(g.phone)+'">اتصال</a>':'')+'</div></div>';}).join(''):'<div class="empty">لا توجد ذمم مستحقة مسجلة.</div>';
 }function getIncomeReport(from,to,walletId,accountId){const rows=data.transactions.filter(t=>isFinancialActive(t)&&(!from||t.date>=from)&&(!to||t.date<=to)&&(!walletId||t.walletId===walletId)&&(!accountId||t.accountId===accountId)&&(t.type==='income'||t.type==='expense'));const income=rows.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount||0),0),expense=rows.filter(t=>t.type==='expense').reduce((s,t)=>s+Number(t.amount||0),0);return {rows,income,expense,net:income-expense};}
-function getWalletMovementReport(from,to){return data.wallets.map(w=>{const opening=(Number(w.opening)||0)+(data.transactions.filter(t=>isFinancialActive(t)&&t.walletId===w.id&&from&&t.date<from).reduce((s,t)=>s+cashEffect(t)*Number(t.amount||0),0))+(data.transfers.filter(t=>from&&t.date<from).reduce((s,t)=>s+(t.to===w.id?Number(t.amount||0):t.from===w.id?-Number(t.amount||0):0),0));const tx=data.transactions.filter(t=>isFinancialActive(t)&&t.walletId===w.id&&(!from||t.date>=from)&&(!to||t.date<=to));const transfers=data.transfers.filter(t=>(t.from===w.id||t.to===w.id)&&(!from||t.date>=from)&&(!to||t.date<=to));const incoming=tx.filter(t=>cashEffect(t)>0).reduce((s,t)=>s+Number(t.amount||0),0)+transfers.filter(t=>t.to===w.id).reduce((s,t)=>s+Number(t.amount||0),0);const outgoing=tx.filter(t=>cashEffect(t)<0).reduce((s,t)=>s+Number(t.amount||0),0)+transfers.filter(t=>t.from===w.id).reduce((s,t)=>s+Number(t.amount||0),0);return {id:w.id,name:w.name,opening,incoming,outgoing,closing:opening+incoming-outgoing,transferIn:transfers.filter(t=>t.to===w.id).reduce((s,t)=>s+Number(t.amount||0),0),transferOut:transfers.filter(t=>t.from===w.id).reduce((s,t)=>s+Number(t.amount||0),0)};});}
+function getWalletMovementReport(from,to){
+ const end=to||'9999-12-31';
+ return data.wallets.map(w=>{
+  let opening=Number(w.opening)||0,incoming=0,outgoing=0,transferIn=0,transferOut=0;
+  const add=(delta)=>{if(delta>0)incoming+=delta;else if(delta<0)outgoing+=-delta;};
+  data.transactions.filter(t=>t.walletId===w.id).forEach(t=>{
+   const date=String(t.date||''),amount=Number(t.amount||0),effect=cashEffect({...t,status:'posted'}),delta=effect*amount;
+   const cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10);
+   if(from&&date<from){if(!cancelled||cancelDate>=from)opening+=delta;}
+   else if(date<=end)add(delta);
+   if(cancelled&&cancelDate&&cancelDate<=end&&(!from||cancelDate>=from))add(-delta);
+  });
+  data.transfers.filter(t=>t.from===w.id||t.to===w.id).forEach(t=>{
+   const date=String(t.date||''),delta=t.to===w.id?Number(t.amount||0):-Number(t.amount||0);
+   if(from&&date<from)opening+=delta;
+   else if(date<=end)add(delta);
+   if(t.to===w.id)transferIn+=(!from||date>=from)&&date<=end?Number(t.amount||0):0;
+   if(t.from===w.id)transferOut+=(!from||date>=from)&&date<=end?Number(t.amount||0):0;
+  });
+  return {id:w.id,name:w.name,opening,incoming,outgoing,closing:opening+incoming-outgoing,transferIn,transferOut};
+ });
+}
 function getBalanceSummary(asOf){const entries=getJournalEntries().filter(e=>!asOf||e.date<=asOf),accounts=getLedgerBalances(entries);const debit=accounts.reduce((s,a)=>s+a.debitMinor,0),credit=accounts.reduce((s,a)=>s+a.creditMinor,0);return {accounts,debit,credit,balanced:debit===credit,validation:validateJournalEntries(entries)};}
 function getDebtReport(asOf){
  const debts=data.debts.filter(d=>isFinancialActiveAt(d,asOf)),keys=new Set(debts.map(debtGroupKey)),groups=new Map();
