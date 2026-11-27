@@ -49,7 +49,7 @@
 <div class="card"><h2>التقارير والإحصاءات</h2><div class="grid"><div><label>من تاريخ</label><input type="date" lang="en-GB" dir="ltr" id="reportFrom"></div><div><label>إلى تاريخ</label><input type="date" lang="en-GB" dir="ltr" id="reportTo"></div><div><label>المحفظة</label><select id="reportWallet"></select></div><div><label>الحساب</label><select id="reportAccount"></select></div></div><div class="actions no-print"><button class="btn" id="runReport">إنشاء التقرير</button><button class="btn secondary" id="exportCsv">تصدير Excel (CSV)</button><button class="btn secondary" id="printReport">طباعة / حفظ PDF</button><button class="btn secondary" id="openReportPage">فتح التقرير في صفحة مستقلة</button></div><p class="muted">لإنشاء PDF: اختر «طباعة / حفظ PDF»، ثم من خيارات الطباعة على الجهاز اختر «حفظ في الملفات» أو خيار PDF المتاح. ملف CSV يفتح في Excel، وقد تحتاج إلى اختيار ترميز UTF-8 عند الاستيراد.</p><div id="reportSummary" class="stats"></div><div class="card"><h2>كشف الدخل</h2><div id="incomeReport" class="empty">إنشاء التقرير لعرض كشف الدخل.</div></div><div class="card"><h2>حركة النقدية والمحافظ</h2><div id="walletMovementReport" class="empty">إنشاء التقرير لعرض حركة المحافظ.</div></div><div class="card"><h2>كشف الذمم حسب التاريخ</h2><div id="debtReport" class="empty">إنشاء التقرير لعرض الذمم.</div></div><div class="card"><h2>تفصيل حسب الحساب</h2><div id="accountReport" class="empty">اضغط «إنشاء التقرير» لعرض النتائج.</div></div><div class="card"><h2>تفصيل المعاملات</h2><div id="reportRows" class="empty">لا توجد نتائج.</div></div><div class="card"><h2>أرصدة المحافظ في نهاية الفترة</h2><div id="reportWallets" class="empty">لا توجد محافظ.</div></div><div class="card"><h2>ملخص الذمم</h2><div id="reportDebts" class="empty">لا توجد ذمم.</div></div><div class="card"><h2>ملخص الأرصدة</h2><p class="muted">الأرصدة مستخرجة من القيود المزدوجة. عند ظهور أخطاء في الفحص، يجب مراجعة الحسابات المرتبطة بالعمليات القديمة قبل اعتماد النتائج.</p><div class="actions no-print"><button class="btn secondary" id="runLedgerTests">تشغيل الاختبارات المحاسبية</button></div><div id="ledgerTestResults" class="muted"></div><div id="trialBalance" class="empty">اضغط «إنشاء التقرير».</div></div></div>
 </section>
 <section id="backup" class="panel">
-<div class="card"><h2>النسخ الاحتياطي والاستعادة</h2><p>احفظ نسخة JSON في تطبيق «الملفات» على الآيفون. النسخة تشمل المحافظ والحسابات والمعاملات والتحويلات والذمم وسجل السداد.</p><div class="actions"><button class="btn" id="exportJson">تنزيل نسخة احتياطية موثقة</button><button class="btn secondary" id="exportEncrypted">نسخة احتياطية مشفرة</button><label class="btn secondary" for="importFile">فحص / استعادة نسخة</label><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div><p class="muted">تُفحص سلامة الملف ومحتوياته قبل الاستعادة. الاستعادة تنشئ نقطة رجوع محلية أولًا. يمكنك أيضًا إنشاء نسخة مشفرة بكلمة مرور.</p><div class="actions"><button class="btn secondary" id="mergeJson">دمج نسخة احتياطية</button></div><div class="actions"><button class="btn secondary" id="runBackupTests">تشغيل اختبارات النسخ الاحتياطي</button></div><div id="backupTestResults" class="muted"></div><div id="backupPreview" class="muted"></div><div id="backupStatus" class="muted"></div></div>
+<div class="card"><h2>النسخ الاحتياطي والاستعادة</h2><p>احفظ نسخة JSON في تطبيق «الملفات» على الآيفون. النسخة تشمل المحافظ والحسابات والمعاملات والتحويلات والذمم وسجل السداد.</p><div class="actions"><button class="btn" id="exportJson">تنزيل نسخة احتياطية موثقة</button><button class="btn secondary" id="exportEncrypted">نسخة احتياطية مشفرة</button><label class="btn secondary" for="importFile">فحص / استعادة نسخة</label><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div><p class="muted">تُفحص سلامة الملف ومحتوياته قبل الاستعادة. تحتفظ الاستعادة بنقطة رجوع محلية واحدة قابلة للتنزيل وإعادة الاستيراد؛ نزّلها إلى تطبيق «الملفات» قبل استبدالها باستعادة لاحقة. يمكنك أيضًا إنشاء نسخة مشفرة بكلمة مرور.</p><div class="actions"><button class="btn secondary" id="mergeJson">دمج نسخة احتياطية</button><button class="btn secondary" id="downloadRollback">تنزيل نقطة الرجوع المحلية</button></div><div class="actions"><button class="btn secondary" id="runBackupTests">تشغيل اختبارات النسخ الاحتياطي</button></div><div id="backupTestResults" class="muted"></div><div id="backupPreview" class="muted"></div><div id="backupStatus" class="muted"></div></div>
 <div class="card"><h2>حماية البيانات</h2><p class="muted">التطبيق لا يرسل معلومات مالية أو أسماء أو أرقام هواتف إلى GitHub أو إلى خادم. التخزين المحلي ليس بديلاً عن النسخ الاحتياطي. لا تشارك ملف JSON لأنه يحتوي على بياناتك الخاصة.</p></div>
 </section>
 <section id="settings" class="panel">
@@ -786,9 +786,11 @@ async function runBackupSelfTests(){
   let oldUnitRejected=false;try{await parseBackupFile(fileFor(oldUnitEnvelope));}catch(e){oldUnitRejected=String(e.message).includes('وحدة المبالغ في النسخة غير مدعومة');}
   check('رفض نسخة بوحدة نقدية قديمة دون تحويل تلقائي',oldUnitRejected,'لا تُحوّل مبالغ النسخ المستوردة القديمة ضمنيًا');
   const testStorage=()=>{const values=new Map([[KEY,'prior-raw'],[KEY+'.rollback.test','rollback-raw']]);return {values,getItem:k=>values.has(k)?values.get(k):null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k)};};
+   const failingStore=()=>{const values=new Map([[KEY,'incoming-raw'],[KEY+'.rollback.test','prior-raw']]);return {values,getItem:k=>values.has(k)?values.get(k):null,setItem:(k,v)=>{if(k===KEY)throw new Error('quota exceeded');values.set(k,String(v));},removeItem:k=>values.delete(k)};};
   const priorTestData={wallets:[{id:'prior'}]},activeTestData={wallets:[{id:'incoming'}]},store1=testStorage();data=activeTestData;dirty=true;let redrawMerge=false,mergeRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',null,store1,()=>{redrawMerge=true;});mergeRollbackOk=data===priorTestData&&!dirty&&store1.getItem(KEY)==='prior-raw'&&redrawMerge;}catch(e){}check('إرجاع حالة الدمج السابقة وإعادة رسمها بعد الفشل',mergeRollbackOk,'تُستعاد الذاكرة والتخزين والواجهة قبل إظهار الخطأ');
   const store2=testStorage();data=activeTestData;dirty=true;let restoreRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store2,()=>{});restoreRollbackOk=data===priorTestData&&!dirty&&store2.getItem(KEY)==='prior-raw'&&!store2.values.has(KEY+'.rollback.test');}catch(e){}check('تنظيف نقطة رجوع الاستعادة وإرجاع التخزين السابق',restoreRollbackOk,'تُزال نقطة الرجوع المؤقتة ويعود السجل الأصلي');
   const store3=testStorage();data=activeTestData;dirty=true;let renderFailureReported=false;try{rollbackImportedState(priorTestData,true,'prior-raw',null,store3,()=>{throw new Error('render test');});}catch(e){renderFailureReported=String(e.message).includes('أُعيدت البيانات والتخزين السابقان');}check('كشف فشل إعادة عرض الواجهة بعد استرجاع البيانات',renderFailureReported&&data===priorTestData&&dirty===true&&store3.getItem(KEY)==='prior-raw','تُذكر للمستخدم ضرورة إعادة تحميل التطبيق دون إخفاء أن التخزين استُعيد');
+   const store4=failingStore();data=activeTestData;dirty=true;let rescuePointRetained=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store4,()=>{});}catch(e){rescuePointRetained=String(e.message).includes('لم تُحذف نقطة الرجوع المحلية')&&store4.getItem(KEY+'.rollback.test')==='prior-raw'&&!store4.values.has(KEY);}check('الإبقاء على نقطة الإنقاذ إذا فشلت إعادة كتابة البيانات السابقة',rescuePointRetained,'لا تُحذف النسخة المؤقتة عند فشل استعادة التخزين حتى يمكن تنزيلها وإنقاذها');
   const encryptedPayload=basePayload(),encryptedText=JSON.stringify(encryptedPayload),salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),password='Backup-Test-2026!';
   const key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(encryptedText));
   const encryptedEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher))};
@@ -906,15 +908,33 @@ function validateMerge(candidate){
 }
 $('exportJson').addEventListener('click',async()=>{try{const content=await makeBackup(false);download('مدير-المصاريف-نسخة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء نسخة موثقة مع بصمة سلامة SHA-256.';}catch(err){alert(err.message);}});
 $('exportEncrypted').addEventListener('click',async()=>{try{const content=await makeBackup(true);if(content)download('مدير-المصاريف-مشفرة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء النسخة المشفرة محليًا.';}catch(err){alert(err.message);}});
-let importMode='replace';function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
+let importMode='replace';const ROLLBACK_KEY=KEY+'.rollback.latest';
+function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
  data=priorData;dirty=priorDirty;
+ try{
+  if(priorRaw===null)storage.removeItem(KEY);else storage.setItem(KEY,priorRaw);
+ }catch(firstRestoreError){
+  try{storage.removeItem(KEY);if(priorRaw!==null)storage.setItem(KEY,priorRaw);}
+  catch(restoreError){throw new Error('تعذر إرجاع التخزين السابق. لم تُحذف نقطة الرجوع المحلية؛ نزّلها من صفحة النسخ الاحتياطي واحتفظ بها قبل أي محاولة أخرى. السبب: '+String(restoreError&&restoreError.message||restoreError));}
+ }
  if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
- try{if(priorRaw===null)storage.removeItem(KEY);else storage.setItem(KEY,priorRaw);}
- catch(restoreError){throw new Error('تعذر إرجاع التخزين السابق؛ أوقف استخدام التطبيق واحتفظ بملف النسخة الأصلية. السبب: '+String(restoreError&&restoreError.message||restoreError));}
  try{redraw();}
  catch(renderError){throw new Error('أُعيدت البيانات والتخزين السابقان، لكن تعذر إعادة عرض الشاشة. أعد تحميل التطبيق قبل المتابعة. السبب: '+String(renderError&&renderError.message||renderError));}
  return true;
 }
+function getRollbackSnapshot(storage=localStorage){
+ try{const latest=storage.getItem(ROLLBACK_KEY);if(latest)return {key:ROLLBACK_KEY,raw:latest};
+  const keys=[];for(let i=0;i<storage.length;i++){const key=storage.key(i);if(key&&key.startsWith(KEY+'.rollback.')&&/^\\d+$/.test(key.slice((KEY+'.rollback.').length)))keys.push(key);}
+  keys.sort((a,b)=>Number(b.slice((KEY+'.rollback.').length))-Number(a.slice((KEY+'.rollback.').length)));
+  for(const key of keys){const raw=storage.getItem(key);if(raw)return {key,raw};}
+ }catch(err){throw new Error('تعذر قراءة نقطة الرجوع المحلية: '+String(err&&err.message||err));}
+ return null;
+}
+function downloadRollbackSnapshot(){
+ try{const snapshot=getRollbackSnapshot();if(!snapshot)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');const blob=new Blob([snapshot.raw],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('backupStatus').textContent='تم تجهيز نقطة الرجوع للتنزيل. احتفظ بالملف في تطبيق «الملفات»؛ ويمكن استعادته عبر فحص / استعادة نسخة.';}
+ catch(err){$('backupStatus').textContent=String(err&&err.message||err);alert(err.message);}
+}
+$('downloadRollback').addEventListener('click',downloadRollbackSnapshot);
 $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e.target.files[0];if(!file)return;try{
  const candidate=await parseBackupFile(file),summary='الملف صالح مبدئيًا. المحافظ: '+candidate.wallets.length+'، الحسابات: '+candidate.accounts.length+'، العمليات: '+candidate.transactions.length+'، التحويلات: '+candidate.transfers.length+'، الذمم: '+candidate.debts.length+'، التسويات: '+candidate.payments.length+'، سجلات التدقيق: '+candidate.audit.length;
  $('backupPreview').textContent=summary;
@@ -929,8 +949,8 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
  }else{
   if(!confirm(summary+'\n\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
-  const rollbackKey=KEY+'.rollback.'+Date.now();
-  try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. أُنشئت نقطة رجوع محلية.';}
+  const rollbackKey=ROLLBACK_KEY;
+  try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));if(localStorage.getItem(rollbackKey)!==(priorRaw||JSON.stringify(priorData)))throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية.');data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. حُفظت نقطة الرجوع المحلية السابقة؛ نزّلها إلى «الملفات» قبل استعادة أخرى.';}
   catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}catch(rollbackError){throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
  }
 }catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{e.target.value='';}});
