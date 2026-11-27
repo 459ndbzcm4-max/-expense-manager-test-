@@ -694,6 +694,7 @@ function validateDebtRelations(candidate){
   if(!d.transactionId||!t||t.debtId!==d.id)errors.push('حركة إنشاء الذمة غير مرتبطة بصورة صحيحة: '+d.id);
   else if(t.type!==(d.type==='receivable'?'debt_out':'debt_in')||Number(t.amount)!==Number(d.amount)||t.walletId!==d.walletId||String(t.date)!==String(d.date))errors.push('بيانات حركة إنشاء الذمة لا تطابق الذمة: '+d.id);
   if(t&&(d.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة الذمة لا تطابق حالة حركة إنشائها: '+d.id);
+  if(t&&d.status==='cancelled'&&(d.cancelledAt!==t.cancelledAt||d.cancelledDate!==t.cancelledDate||d.cancelledBy!==t.cancelledBy||d.cancelReason!==t.cancelReason))errors.push('بيانات إلغاء الذمة لا تطابق حركة إنشائها: '+d.id);
  });
  candidate.transactions.filter(t=>['debt_out','debt_in'].includes(t.type)).forEach(t=>{
   const d=debtById.get(t.debtId);
@@ -718,6 +719,7 @@ function validateDebtRelations(candidate){
   else{
    if(t.type!==expected||Number(t.amount)!==Number(p.amount)||t.walletId!==p.walletId||String(t.date)!==String(p.date)||t.debtGroupKey!==p.groupKey||t.debtId)errors.push('بيانات حركة التسوية لا تطابق سجل التسوية: '+p.id);
    if((p.status==='cancelled')!==(t.status==='cancelled'))errors.push('حالة التسوية لا تطابق حالة حركتها النقدية: '+p.id);
+   if(t&&p.status==='cancelled'&&(p.cancelledAt!==t.cancelledAt||p.cancelledDate!==t.cancelledDate||p.cancelReason!==t.cancelReason))errors.push('بيانات إلغاء التسوية لا تطابق حركتها النقدية: '+p.id);
   }
   if(isFinancialActive(p)){paidTotals.set(p.groupKey,(paidTotals.get(p.groupKey)||0)+Number(p.amount));}
  });
