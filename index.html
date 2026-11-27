@@ -342,6 +342,14 @@ function runLedgerSelfTests(){
   const conflictingBackup={...fresh(),wallets:[{id:'merge-wallet',name:'محفظة مختلفة',opening:1000}]};
   let conflictingRejected=false;try{validateMerge(conflictingBackup);}catch(e){conflictingRejected=true;}
   check('رفض تعارض المعرّف بمحتوى مختلف عند الدمج',conflictingRejected,'يُمنع استبدال سجل قائم بصمت');
+ // اختبار التاريخية: القيد الأصلي يبقى حتى يوم الإلغاء، والقيد العكسي يبدأ في يوم الإلغاء.
+  data={version:2,moneyUnit:'fils',wallets:[{id:'history-cancel-wallet',name:'محفظة تاريخية',opening:50000,created:'2026-03-01'}],accounts:[{id:'history-cancel-expense',name:'مصروف تاريخي',type:'expense'}],debts:[],transactions:[{id:'history-cancel-tx',type:'expense',amount:10000,walletId:'history-cancel-wallet',accountId:'history-cancel-expense',date:'2026-03-10',status:'cancelled',cancelledAt:'2026-03-12T09:30:00Z',cancelledDate:'2026-03-12'}],transfers:[],payments:[],audit:[]};
+  const historicalEntries=getJournalEntries();
+  const beforeCancel=getBalanceSummary('2026-03-11').accounts.find(a=>a.id==='wallet:history-cancel-wallet')?.balanceMinor;
+  const onCancel=getBalanceSummary('2026-03-12').accounts.find(a=>a.id==='wallet:history-cancel-wallet')?.balanceMinor;
+  check('الرصيد التاريخي قبل يوم الإلغاء يحتفظ بأثر العملية',beforeCancel===40000,'الرصيد قبل الإلغاء 40000 فلس');
+  check('الرصيد التاريخي من يوم الإلغاء يعكس العملية',onCancel===50000,'الرصيد من يوم الإلغاء 50000 فلس');
+  check('إنشاء قيد عكسي واحد فقط لكل إلغاء',historicalEntries.filter(e=>e.id==='reversal:history-cancel-tx').length===1,'يجب ألا يتكرر القيد العكسي عند إعادة اشتقاق الأستاذ');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
