@@ -139,7 +139,7 @@ function cancelWalletTransfer(id,reason){
   const redrawn=redrawAfterRollback();
   return {ok:false,message:'تعذر إتمام إلغاء التحويل؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+(redrawn?'':'تعذر تحديث الشاشة؛ أعد تحميل التطبيق. ')+String(err&&err.message||err)};
  }
-}}
+}
 function cancelFinancialTransaction(id,reason){
  const t=data.transactions.find(x=>x.id===id);if(!t||!isFinancialActive(t))return {ok:false,message:'العملية غير موجودة أو ملغاة سابقًا.'};
  if(today()<String(t.date||''))return {ok:false,message:'لا يمكن إلغاء معاملة مؤرخة في المستقبل؛ يجب أن يكون تاريخ الإلغاء مساويًا لتاريخ المعاملة أو لاحقًا له.'};
@@ -168,7 +168,7 @@ function cancelFinancialTransaction(id,reason){
   const redrawn=redrawAfterRollback();
   return {ok:false,message:'تعذر إتمام الإلغاء؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+(redrawn?'':'تعذر تحديث الشاشة؛ أعد تحميل التطبيق. ')+String(err&&err.message||err)};
  }
-}}function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
+}function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
 function walletTimelineValid(wid,extra={}){
   const w=data.wallets.find(x=>x.id===wid);if(!w)return false;
   const opening=Number(w.opening??0),creationDate=String(w.created||'0000-01-01');if(!Number.isSafeInteger(opening)||opening<0)return false;
