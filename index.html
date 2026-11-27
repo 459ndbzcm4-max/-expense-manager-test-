@@ -114,8 +114,9 @@ function cancelFinancialTransaction(id,reason){
   if(settled)return {ok:false,message:'لا يمكن إلغاء إنشاء هذه الذمة قبل معالجة جميع التسويات المرتبطة بها.'};
  }
  if(!walletTimelineValid(t.walletId,{excludeTransactionId:t.id}))return {ok:false,message:'تعذر التحقق من تسلسل رصيد المحفظة.'};
- const priorData=data,priorRaw=localStorage.getItem(KEY),priorDirty=dirty;
- data=JSON.parse(JSON.stringify(data));
+ const priorData=data,priorDirty=dirty;let priorRaw;
+ try{priorRaw=localStorage.getItem(KEY);}catch(err){return {ok:false,message:'تعذر إنشاء نقطة رجوع من التخزين المحلي؛ لم يُنفذ الإلغاء. '+String(err&&err.message||err)};}
+ try{data=JSON.parse(JSON.stringify(data));}catch(err){return {ok:false,message:'تعذر إنشاء نسخة عمل آمنة؛ لم يُنفذ الإلغاء. '+String(err&&err.message||err)};}
  try{
   const target=data.transactions.find(x=>x.id===id),debt=data.debts.find(d=>d.id===target.debtId);
   const oldValues={status:target.status||'posted',amount:target.amount,type:target.type,walletId:target.walletId,date:target.date};
