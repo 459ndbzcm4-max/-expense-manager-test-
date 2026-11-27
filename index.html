@@ -982,7 +982,7 @@ if(b.dataset.typeAccount){const a=data.accounts.find(x=>x.id===b.dataset.typeAcc
 if(b.dataset.deleteAccount){const a=data.accounts.find(x=>x.id===b.dataset.deleteAccount);if(!a)return;if(data.accounts.some(x=>x.parentId===a.id)||data.transactions.some(t=>t.accountId===a.id))return alert('لا يمكن حذف حساب مرتبط بحسابات فرعية أو معاملات.');if(confirm('حذف الحساب '+a.name+'؟')){data.accounts=data.accounts.filter(x=>x.id!==a.id);changed('حذف حساب',a.name);}}
 if(b.dataset.deleteDebt){return alert('لا يجوز حذف ذمة مثبتة؛ يجب إلغاؤها بقيد عكسي بعد التحقق من جميع التسويات المرتبطة بها.');}
 });
-$('closeApp').addEventListener('click',()=>{if(dirty&&!confirm('توجد تغييرات غير محفوظة. مغادرة دون حفظ؟'))return;if(dirty)dirty=false;alert('تم الحفظ تلقائيًا. يمكنك إغلاق صفحة التطبيق من مبدّل التطبيقات في الآيفون.');});
+$('closeApp').addEventListener('click',()=>{if(dirty){if(!confirm('توجد تغييرات غير محفوظة. هل تريد حفظها الآن قبل مغادرة الصفحة؟'))return;try{save();renderAll();}catch(err){alert('تعذر حفظ التغييرات؛ بقيت الحالة غير محفوظة. لا تغادر الصفحة قبل معالجة الخطأ أو تنزيل نسخة احتياطية. '+String(err&&err.message||err));return;}}alert('تم التحقق من حفظ البيانات. يمكنك مغادرة صفحة التطبيق من مبدّل التطبيقات في الآيفون.');});
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 // إعادة بناء لقطة القيود عند بدء التشغيل فقط إذا كانت البيانات صالحة ولا تنتظر موافقة ترحيل.
 // عند فشل القراءة أو انتظار تحويل وحدة المبالغ، لا نكتب فوق السجل الأصلي قبل حسم البوابة.
