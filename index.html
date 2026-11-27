@@ -147,6 +147,7 @@ function cancelWalletTransfer(id,reason){
 }
 function cancelFinancialTransaction(id,reason){
  const t=data.transactions.find(x=>x.id===id);if(!t||!isFinancialActive(t))return {ok:false,message:'العملية غير موجودة أو ملغاة سابقًا.'};
+ if(typeof reason!=='string'||!reason.trim())return {ok:false,message:'سبب الإلغاء إلزامي.'};
  if(today()<String(t.date||''))return {ok:false,message:'لا يمكن إلغاء معاملة مؤرخة في المستقبل؛ يجب أن يكون تاريخ الإلغاء مساويًا لتاريخ المعاملة أو لاحقًا له.'};
  const linkedDebt=data.debts.find(d=>d.id===t.debtId);
  if((t.type==='debt_out'||t.type==='debt_in')&&linkedDebt){
