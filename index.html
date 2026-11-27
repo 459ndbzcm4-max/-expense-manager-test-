@@ -96,6 +96,7 @@ function ensureMoneyInFils(target){
 ;
 function assertStorageWritable(){if(dataLoadBlocked&&!recoveryImportInProgress)throw new Error('الكتابة متوقفة لأن قراءة البيانات المحلية لم تنجح أو لأن إصدارها غير معروف. أُبقيت البيانات الأصلية دون تعديل.');if(moneyMigrationPending&&!recoveryImportInProgress&&!moneyMigrationCommitInProgress)throw new Error('الكتابة متوقفة حتى الموافقة على تحويل وحدة المبالغ وحفظ النسخة الأصلية.');}
 function assertImportModeAllowed(mode,recoveryMode){if(recoveryMode&&mode==='merge')throw new Error('وضع الحماية يسمح باستعادة نسخة سليمة فقط، وليس الدمج.');return true;}
+function restoreStorageValue(storage,key,expectedRaw){const current=storage.getItem(key);if(current!==expectedRaw){if(expectedRaw===null)storage.removeItem(key);else storage.setItem(key,expectedRaw);}if(storage.getItem(key)!==expectedRaw)throw new Error('تعذر التحقق من إعادة قيمة التخزين السابقة.');return true;}
 function save(){assertStorageWritable();const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
 function restoreCommittedData(){data=JSON.parse(JSON.stringify(committedDataSnapshot));dirty=false;}
 function changed(action,details){
@@ -131,7 +132,7 @@ function cancelWalletTransfer(id,reason){
   save();renderAll();return {ok:true};
  }catch(err){
   data=priorData;dirty=priorDirty;let storageRestored=false;
-  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(priorData));storageRestored=true;}catch(restoreError){}
+  try{restoreStorageValue(localStorage,KEY,priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(priorData));storageRestored=true;}catch(restoreError){}
   return {ok:false,message:'تعذر إتمام إلغاء التحويل؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+String(err&&err.message||err)};
  }
 }
@@ -158,7 +159,7 @@ function cancelFinancialTransaction(id,reason){
   save();renderAll();return {ok:true};
  }catch(err){
   data=priorData;dirty=priorDirty;let storageRestored=false;
-  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(priorData));storageRestored=true;}catch(restoreError){}
+  try{restoreStorageValue(localStorage,KEY,priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(priorData));storageRestored=true;}catch(restoreError){}
   return {ok:false,message:'تعذر إتمام الإلغاء؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+String(err&&err.message||err)};
  }
 }function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
@@ -884,6 +885,16 @@ async function runBackupSelfTests(){
   const store2=testStorage();data=activeTestData;dirty=true;let restoreRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store2,()=>{});restoreRollbackOk=data===priorTestData&&!dirty&&store2.getItem(KEY)==='prior-raw'&&!store2.values.has(KEY+'.rollback.test');}catch(e){}check('تنظيف نقطة رجوع الاستعادة وإرجاع التخزين السابق',restoreRollbackOk,'تُزال نقطة الرجوع المؤقتة ويعود السجل الأصلي');
   const store3=testStorage();data=activeTestData;dirty=true;let renderFailureReported=false;try{rollbackImportedState(priorTestData,true,'prior-raw',null,store3,()=>{throw new Error('render test');});}catch(e){renderFailureReported=String(e.message).includes('أُعيدت البيانات والتخزين السابقان');}check('كشف فشل إعادة عرض الواجهة بعد استرجاع البيانات',renderFailureReported&&data===priorTestData&&dirty===true&&store3.getItem(KEY)==='prior-raw','تُذكر للمستخدم ضرورة إعادة تحميل التطبيق دون إخفاء أن التخزين استُعيد');
    const store4=failingStore();data=activeTestData;dirty=true;let rescuePointRetained=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store4,()=>{});}catch(e){rescuePointRetained=String(e.message).includes('لم تُحذف نقطة الرجوع المحلية')&&store4.getItem(KEY+'.rollback.test')==='prior-raw'&&store4.getItem(KEY)==='incoming-raw';}check('الإبقاء على نقطة الإنقاذ وعدم حذف البيانات الحالية عند فشل الإرجاع',rescuePointRetained,'لا يُحذف مفتاح البيانات إذا فشلت إعادة كتابة الحالة السابقة، وتبقى نقطة الإنقاذ محفوظة');
+  let unchangedStorageNoWrite=false,changedStorageRestored=false,absentStorageRestored=false;
+  const unchangedStore={value:'prior-raw',getItem(){return this.value;},setItem(){throw new Error('should not rewrite existing value');},removeItem(){throw new Error('should not remove existing value');}};
+  try{restoreStorageValue(unchangedStore,KEY,'prior-raw');unchangedStorageNoWrite=unchangedStore.value==='prior-raw';}catch(e){}
+  const changedStore={value:'new-raw',getItem(){return this.value;},setItem(k,v){this.value=String(v);},removeItem(){this.value=null;}};
+  try{restoreStorageValue(changedStore,KEY,'prior-raw');changedStorageRestored=changedStore.value==='prior-raw';}catch(e){}
+  const absentStore={value:'new-raw',getItem(){return this.value;},setItem(k,v){this.value=String(v);},removeItem(){this.value=null;}};
+  try{restoreStorageValue(absentStore,KEY,null);absentStorageRestored=absentStore.value===null;}catch(e){}
+  check('تجنب إعادة كتابة التخزين إذا كانت الحالة السابقة محفوظة بالفعل',unchangedStorageNoWrite,'عند فشل setItem بسبب الامتلاء وبقاء القيمة الأصلية، لا نعيد كتابة المفتاح بلا داعٍ');
+  check('إرجاع قيمة التخزين عند اختلافها عن الحالة السابقة',changedStorageRestored,'إذا تم حفظ الحالة الجديدة ثم فشل العرض، تُعاد القيمة السابقة مع التحقق منها');
+  check('إرجاع غياب مفتاح التخزين إلى حالته الأصلية',absentStorageRestored,'تُزال القيمة الجديدة فقط عندما كانت الحالة السابقة بلا مفتاح');
   const preflightStore={values:new Map([[KEY,'original-raw']]),getItem(k){return this.values.has(k)?this.values.get(k):null;},setItem(k,v){if(k===KEY+'.rollback.test')throw new Error('quota exceeded');this.values.set(k,String(v));},removeItem(k){this.values.delete(k);}};let preflightSafe=false;try{persistRollbackSnapshot('original-raw',priorTestData,preflightStore,KEY+'.rollback.test');}catch(e){preflightSafe=preflightStore.getItem(KEY)==='original-raw'&&!preflightStore.values.has(KEY+'.rollback.test');}check('عدم لمس البيانات الأصلية عند فشل تجهيز نقطة الرجوع',preflightSafe,'فشل كتابة نقطة الرجوع يوقف الاستعادة قبل تغيير مفتاح البيانات الأصلي');
    const store5=testStorage();store5.values.set(KEY,'incoming-raw');const emptyPrior={wallets:[{id:'unsaved-before-import'}]};store5.values.set(KEY+'.rollback.test',JSON.stringify(emptyPrior));data=activeTestData;dirty=true;let missingPriorRawRecovered=false;try{rollbackImportedState(emptyPrior,true,null,KEY+'.rollback.test',store5,()=>{});missingPriorRawRecovered=JSON.parse(store5.getItem(KEY)).wallets[0].id==='unsaved-before-import'&&!store5.values.has(KEY+'.rollback.test');}catch(e){}check('حفظ حالة الذاكرة السابقة عند غياب سجل التخزين الرئيسي',missingPriorRawRecovered,'عند عدم وجود priorRaw تُحفظ نسخة من البيانات السابقة قبل تنظيف نقطة الرجوع');
   const encryptedPayload=basePayload(),encryptedText=JSON.stringify(encryptedPayload),salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),password='Backup-Test-2026!';
@@ -1057,7 +1068,7 @@ function persistRollbackSnapshot(priorRaw,priorData,storage=localStorage,rollbac
 function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
  data=priorData;dirty=priorDirty;const restoreRaw=priorRaw===null?JSON.stringify(priorData):priorRaw;
  try{
-  storage.setItem(KEY,restoreRaw);
+  restoreStorageValue(storage,KEY,restoreRaw);
   committedDataSnapshot=JSON.parse(restoreRaw);
  }catch(restoreError){
   throw new Error('تعذر إرجاع التخزين السابق. لم تُحذف نقطة الرجوع المحلية؛ نزّلها من صفحة النسخ الاحتياطي واحتفظ بها قبل أي محاولة أخرى. السبب: '+String(restoreError&&restoreError.message||restoreError));
