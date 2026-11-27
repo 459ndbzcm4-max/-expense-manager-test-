@@ -1339,10 +1339,20 @@ $('exportEncrypted').addEventListener('click',async()=>{try{const content=await 
 let importMode='replace',mergePickerRequested=false;const ROLLBACK_KEY=KEY+'.rollback.latest';
 function consumeImportPickerClick(){if(mergePickerRequested){mergePickerRequested=false;return;}importMode='replace';}
 function persistRollbackSnapshot(priorRaw,priorData,storage=localStorage,rollbackKey=ROLLBACK_KEY){
- const raw=priorRaw===null?JSON.stringify(priorData):priorRaw;
+ const raw=priorRaw===null?JSON.stringify(priorData):priorRaw,previous=storage.getItem(rollbackKey);
  storage.setItem(rollbackKey,raw);
- const verified=storage.getItem(rollbackKey);
- if(verified!==raw)throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية؛ لم يبدأ استبدال البيانات.');
+ let verified;
+ try{verified=storage.getItem(rollbackKey);}
+ catch(readError){
+  try{restoreStorageValue(storage,rollbackKey,previous);}
+  catch(restoreError){throw new Error('تعذر التحقق من نقطة الرجوع، كما تعذرت استعادة النقطة السابقة؛ لا تتابع الاستيراد واحتفظ بأي نسخة خارجية متاحة. السبب: '+String(restoreError&&restoreError.message||restoreError));}
+  throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية؛ استُعيدت النقطة السابقة ولم يبدأ الاستيراد. السبب: '+String(readError&&readError.message||readError));
+ }
+ if(verified!==raw){
+  try{restoreStorageValue(storage,rollbackKey,previous);}
+  catch(restoreError){throw new Error('فشل التحقق من نقطة الرجوع وتعذرت استعادة النقطة السابقة؛ لا تتابع الاستيراد واحتفظ بأي نسخة خارجية متاحة. السبب: '+String(restoreError&&restoreError.message||restoreError));}
+  throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية؛ استُعيدت النقطة السابقة ولم يبدأ الاستيراد.');
+ }
  return raw;
 }
 function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
@@ -1389,9 +1399,18 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
   const merged=JSON.parse(JSON.stringify(data));backupCollections.forEach(k=>{const ids=new Set(merged[k].map(x=>x.id));candidate[k].forEach(x=>{if(!ids.has(x.id)){merged[k].push(x);ids.add(x.id);}});});
     validateBackupCollections(merged);validateBackupFinancialRecords(merged);const relations=validateDebtRelations(merged);if(!relations.valid)throw new Error('الدمج ينتج علاقات ذمم وتسويات غير سليمة: '+relations.errors.slice(0,4).join('؛ '));const prior=data;data=merged;try{const v=validateJournalEntries(getJournalEntries());if(!v.valid)throw new Error('الدمج ينتج قيودًا غير متوازنة.');for(const w of data.wallets)if(!walletTimelineValid(w.id))throw new Error('الدمج يؤدي إلى رصيد نقدي سالب أو تسلسل غير صالح.');}finally{data=prior;}
   if(!confirm(summary+'\n\nسيُضاف فقط ما لا يتعارض من السجلات. هل تعتمد الدمج؟'))return;
-  const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
-  try{data=merged;save();renderAll();$('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي.';}
-  catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,null);}catch(rollbackError){throw new Error('فشل الدمج. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
+  const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty,rollbackKey=ROLLBACK_KEY;
+  let mergeStarted=false;
+  try{
+   persistRollbackSnapshot(priorRaw,priorData,localStorage,rollbackKey);
+   mergeStarted=true;data=merged;save();renderAll();
+   $('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي. حُفظت نقطة رجوع للبيانات السابقة؛ نزّلها إلى «الملفات» قبل استعادة أخرى.';
+  }
+  catch(err){
+   if(mergeStarted){try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}catch(rollbackError){throw new Error('فشل الدمج. '+String(rollbackError&&rollbackError.message||rollbackError));}}
+   else{data=priorData;dirty=priorDirty;}
+   throw err;
+  }
  }else{
   if(!confirm(summary+'\\n\\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
