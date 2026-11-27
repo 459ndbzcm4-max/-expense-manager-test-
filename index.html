@@ -937,7 +937,7 @@ async function rollbackSnapshotBackup(raw){
  const envelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt:new Date().toISOString(),checksum:await sha256Hex(JSON.stringify(payload)),payload};return JSON.stringify(envelope,null,2);
 }
 async function downloadRollbackSnapshot(){
- try{const snapshot=getRollbackSnapshot();if(!snapshot)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');const content=await rollbackSnapshotBackup(snapshot.raw),blob=new Blob([content],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('backupStatus').textContent='تم تنزيل نقطة الرجوع بصيغة موثقة قابلة للفحص والاستعادة. احتفظ بها في تطبيق «الملفات».'';}
+ try{const snapshot=getRollbackSnapshot();if(!snapshot)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');const content=await rollbackSnapshotBackup(snapshot.raw),blob=new Blob([content],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('backupStatus').textContent='تم تنزيل نقطة الرجوع بصيغة موثقة قابلة للفحص والاستعادة. احتفظ بها في تطبيق «الملفات».';}
  catch(err){$('backupStatus').textContent=String(err&&err.message||err);alert(err.message);}
 }
 $('downloadRollback').addEventListener('click',downloadRollbackSnapshot);
