@@ -967,6 +967,8 @@ async function runBackupSelfTests(){
   check('رفض الدمج إذا كانت البيانات المحلية نفسها تحتوي معرّفًا مكررًا',duplicateCurrentRejected,'يوقف الدمج بدل البناء فوق حالة محلية ملتبسة');
   const mergeMissingAudit=basePayload();delete mergeMissingAudit.audit;let mergeMissingAuditRejected=false;try{validateBackupCollections(mergeMissingAudit);}catch(e){mergeMissingAuditRejected=true;}
   check('رفض نتيجة دمج تفتقد مجموعة التدقيق',mergeMissingAuditRejected,'تُفحص المجموعات الثماني المطلوبة في نتيجة الدمج قبل اعتمادها');
+  let importPickerModesValid=false;const savedImportMode=importMode,savedMergePickerRequested=mergePickerRequested;try{importMode='merge';mergePickerRequested=false;consumeImportPickerClick();const normalPickerResets=importMode==='replace'&&!mergePickerRequested;importMode='merge';mergePickerRequested=true;consumeImportPickerClick();const mergePickerPreserves=importMode==='merge'&&!mergePickerRequested;importPickerModesValid=normalPickerResets&&mergePickerPreserves;}finally{importMode=savedImportMode;mergePickerRequested=savedMergePickerRequested;}
+  check('إعادة وضع الاستيراد العادي بعد إلغاء/انتهاء اختيار ملف الدمج',importPickerModesValid,'يبقى وضع الدمج محصورًا في نافذة الملف التي طلبها المستخدم');
   const cancelledTransferFixture=()=>{const p=basePayload();p.wallets=[{id:'cancel-a',name:'مصدر',opening:5000},{id:'cancel-b',name:'مستقبل',opening:0}];p.transfers=[{id:'cancel-transfer',from:'cancel-a',to:'cancel-b',amount:1000,date:'2026-11-01',status:'cancelled',cancelledAt:'2026-11-02T08:15:00.000Z',cancelledDate:'2026-11-02',cancelledBy:'local_owner',cancelReason:'اختبار الإلغاء'}];p.audit=[{id:'cancel-audit',date:'2026-11-02T08:15:00.000Z',dateLocal:'2026-11-02',action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:'cancel-transfer',actor:'local_owner',reason:'اختبار الإلغاء',newValues:{status:'cancelled',cancelledBy:'local_owner',cancelReason:'اختبار الإلغاء'}}];return p;};
   const cancelledTransactionPayload=basePayload();
    cancelledTransactionPayload.wallets=[{id:'cancel-tx-wallet',name:'محفظة المعاملة',opening:5000}];
@@ -1032,7 +1034,8 @@ function validateMerge(candidate){
 }
 $('exportJson').addEventListener('click',async()=>{try{const content=await makeBackup(false);download('مدير-المصاريف-نسخة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء نسخة موثقة مع بصمة سلامة SHA-256.';}catch(err){alert(err.message);}});
 $('exportEncrypted').addEventListener('click',async()=>{try{const content=await makeBackup(true);if(content)download('مدير-المصاريف-مشفرة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء النسخة المشفرة محليًا.';}catch(err){alert(err.message);}});
-let importMode='replace';const ROLLBACK_KEY=KEY+'.rollback.latest';
+let importMode='replace',mergePickerRequested=false;const ROLLBACK_KEY=KEY+'.rollback.latest';
+function consumeImportPickerClick(){if(mergePickerRequested){mergePickerRequested=false;return;}importMode='replace';}
 function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
  data=priorData;dirty=priorDirty;const restoreRaw=priorRaw===null?JSON.stringify(priorData):priorRaw;
  try{
@@ -1084,8 +1087,8 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
   try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));if(localStorage.getItem(rollbackKey)!==(priorRaw||JSON.stringify(priorData)))throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية.');data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. حُفظت نقطة الرجوع المحلية السابقة؛ نزّلها إلى «الملفات» قبل استعادة أخرى.';}
   catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}catch(rollbackError){throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
  }
-}catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{e.target.value='';}});
-$('mergeJson').addEventListener('click',()=>{importMode='merge';$('importFile').click();});$('importFile').addEventListener('click',()=>{if(importMode!=='merge')importMode='replace';});
+}catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{importMode='replace';mergePickerRequested=false;e.target.value='';}});
+$('mergeJson').addEventListener('click',()=>{importMode='merge';mergePickerRequested=true;$('importFile').click();});$('importFile').addEventListener('click',consumeImportPickerClick);
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
 if(b.dataset.transferProof){const t=data.transfers.find(x=>x.id===b.dataset.transferProof);if(t){const f=data.wallets.find(w=>w.id===t.from),to=data.wallets.find(w=>w.id===t.to);alert('إثبات تحويل\nرقم المرجع: '+t.ref+'\nالتاريخ: '+dateDisplay(t.date)+' · الوقت: '+itemTime(t)+'\nمن: '+(f?f.name:'محفظة')+'\nإلى: '+(to?to.name:'محفظة')+'\nالمبلغ: '+money(t.amount)+'\nالبيان: '+(t.note||'—'));}}
 if(b.dataset.deleteTx){return alert('لا يجوز حذف عملية مالية محفوظة.');}
