@@ -252,6 +252,21 @@ function validateJournalEntries(entries=getJournalEntries()){
 function runLedgerSelfTests(){
  const original=data,results=[];
  const check=(name,condition,detail='')=>results.push({name,passed:!!condition,detail});
+ const accountTestRows=[{id:'account-test-income',name:'دخل',type:'income'},{id:'account-test-expense',name:'مصروف',type:'expense'},{id:'account-test-unused',name:'غير مستخدم',type:'expense'}];
+ const accountTestTx=[{id:'account-test-tx',accountId:'account-test-income',type:'income'}];
+ const accountRename=validateAccountMutation(accountTestRows,accountTestTx,'account-test-income',{type:'rename',name:'دخل إضافي'});
+ const accountDuplicate=validateAccountMutation(accountTestRows,accountTestTx,'account-test-income',{type:'rename',name:'مصروف'});
+ const accountUsedType=validateAccountMutation(accountTestRows,accountTestTx,'account-test-income',{type:'changeType',value:'expense'});
+ const accountUsedDelete=validateAccountMutation(accountTestRows,accountTestTx,'account-test-income',{type:'delete'});
+ const accountUnusedType=validateAccountMutation(accountTestRows,accountTestTx,'account-test-unused',{type:'changeType',value:'income'});
+ const accountUnusedDelete=validateAccountMutation(accountTestRows,accountTestTx,'account-test-unused',{type:'delete'});
+ check('السماح بتعديل اسم الحساب دون تغيير معرفه',accountRename.valid&&accountRename.name==='دخل إضافي','تعديل الاسم يحافظ على مرجع الحساب');
+ check('رفض اسم حساب مكرر ضمن النوع نفسه',!accountDuplicate.valid,'لا يسمح بتكرار الاسم والنوع');
+ check('منع تغيير نوع حساب مرتبط بمعاملة',!accountUsedType.valid,'تحمى طبيعة القيود السابقة');
+ check('منع حذف حساب مستخدم في معاملة',!accountUsedDelete.valid,'تحمى مراجع المعاملات');
+ check('السماح بتغيير نوع حساب غير مستخدم',accountUnusedType.valid&&accountUnusedType.value==='income','الحساب غير المرتبط بحركات يمكن تصنيفه');
+ check('السماح بحذف حساب غير مستخدم',accountUnusedDelete.valid,'لا توجد معاملات تشير إليه');
+
  try{
   const receivable={id:'test-dr',type:'receivable',person:'اختبار ذمم مدينة',amount:5000};
   const payable={id:'test-dp',type:'payable',person:'اختبار ذمم دائنة',amount:8000};
