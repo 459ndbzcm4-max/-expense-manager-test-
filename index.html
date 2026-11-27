@@ -503,6 +503,31 @@ function runLedgerSelfTests(){
   // إلغاء الحلقة الأولى بعد إنفاق جزء من المبلغ بتحويل لاحق يجب أن يُرفض.
   data.transfers[0]={...data.transfers[0],status:'cancelled',cancelledAt:'2026-06-01T12:30:00.000Z',cancelledDate:'2026-06-01',cancelReason:'اختبار رفض إلغاء الحلقة الأولى'};
   check('رفض إلغاء تحويل سابق استُهلك مبلغه في تحويل لاحق',!walletTimelineValid('chain-b'),'المحفظة ب لا تملك 30000 فلس لإرجاع التحويل الأول');
+  // تقارير فترات متداخلة: تحويل قبل الفترة، وقيد عكسي داخلها، مع حركات نقدية أخرى.
+  const overlapAudit={id:'overlap-audit',date:'2026-06-06T09:00:00.000Z',dateLocal:'2026-06-06',action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:'overlap-tr1',reason:'اختبار الفترات المتداخلة'};
+  data={version:2,moneyUnit:'fils',wallets:[
+   {id:'overlap-a',name:'أ',opening:100000,created:'2026-06-01'},
+   {id:'overlap-b',name:'ب',opening:0,created:'2026-06-01'},
+   {id:'overlap-c',name:'ج',opening:20000,created:'2026-06-01'}
+  ],accounts:[{id:'overlap-income',name:'إيراد',type:'income'},{id:'overlap-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
+   {id:'overlap-income-tx',type:'income',amount:5000,walletId:'overlap-a',accountId:'overlap-income',date:'2026-06-04'},
+   {id:'overlap-expense-tx',type:'expense',amount:2000,walletId:'overlap-a',accountId:'overlap-expense',date:'2026-06-05'}
+  ],transfers:[
+   {id:'overlap-tr1',from:'overlap-a',to:'overlap-b',amount:30000,date:'2026-06-02',createdAt:'2026-06-02T09:00:00.000Z',status:'cancelled',cancelledAt:overlapAudit.date,cancelledDate:overlapAudit.dateLocal,cancelledBy:'local_owner',cancelReason:overlapAudit.reason},
+   {id:'overlap-tr2',from:'overlap-c',to:'overlap-a',amount:10000,date:'2026-06-03',createdAt:'2026-06-03T09:00:00.000Z'}
+  ],payments:[],audit:[overlapAudit]};
+  const rangeA=getWalletMovementReport('2026-06-04','2026-06-05').find(w=>w.id==='overlap-a');
+  const rangeB=getWalletMovementReport('2026-06-06','2026-06-06').find(w=>w.id==='overlap-a');
+  const rangeWhole=getWalletMovementReport('2026-06-02','2026-06-06').find(w=>w.id==='overlap-a');
+  const rangeReceiver=getWalletMovementReport('2026-06-06','2026-06-06').find(w=>w.id==='overlap-b');
+  const splitOpening=getWalletMovementReport('2026-06-06','2026-06-06').find(w=>w.id==='overlap-a')?.opening;
+  check('رصيد أول الفترة يستبعد أثر التحويل المعكوس لاحقًا',rangeA?.opening===80000&&rangeA?.closing===83000&&rangeA?.transferIn===0&&rangeA?.transferOut===0,'4–5 يونيو: افتتاحي 80000 وختامي 83000 دون تحويلات داخل الفترة');
+  check('فترة الإلغاء تعرض القيد العكسي مرة واحدة',rangeB?.opening===83000&&rangeB?.incoming===30000&&rangeB?.outgoing===0&&rangeB?.transferIn===30000&&rangeB?.transferOut===0&&rangeB?.closing===113000,'6 يونيو: افتتاحي 83000 ومقبوض تحويل 30000 وختامي 113000');
+  check('الفترة الجامعة لا تكرر أصل التحويل في الافتتاحي',rangeWhole?.opening===100000&&rangeWhole?.incoming===45000&&rangeWhole?.outgoing===32000&&rangeWhole?.transferIn===40000&&rangeWhole?.transferOut===30000&&rangeWhole?.closing===113000,'2–6 يونيو: مقبوضات 45000 ومدفوعات 32000 وصافي 113000');
+  check('رصيد نهاية الفترة الأولى يساوي افتتاح الفترة التالية',rangeA?.closing===splitOpening,'الرصيد المرحل 83000 فلس دون فجوة أو تكرار');
+  check('المحفظة المستقبلة تعرض التحويل الأصلي والعكس ضمن فترتيهما',rangeReceiver?.opening===30000&&rangeReceiver?.outgoing===30000&&rangeReceiver?.transferOut===30000&&rangeReceiver?.closing===0,'افتتاحي 30000 ثم خروج عكسي 30000');
+  const overlapSummary=getBalanceSummary('2026-06-06'),overlapLedger=overlapSummary.accounts.find(a=>a.id==='wallet:overlap-a');
+  check('الرصيد الختامي للتقرير يطابق الأستاذ التاريخي',overlapSummary.balanced&&overlapLedger?.balanceMinor===rangeB?.closing&&balance('overlap-a')===113000,'ميزان متوازن ورصيد المحفظة 113000 فلس');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
