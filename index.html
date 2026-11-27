@@ -122,9 +122,9 @@ function cancelWalletTransfer(id,reason){
   data.audit.push({id:uid(),date:target.cancelledAt,dateLocal:target.cancelledDate,action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:target.id,actor:target.cancelledBy,oldValues,newValues:{status:'cancelled',cancelledBy:target.cancelledBy,cancelReason:reason.trim()},reason:reason.trim()});
   save();renderAll();return {ok:true};
  }catch(err){
-  data=priorData;dirty=priorDirty;
-  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){}
-  return {ok:false,message:'تعذر إتمام إلغاء التحويل؛ أُعيدت البيانات إلى حالتها السابقة. '+String(err&&err.message||err)};
+  data=priorData;dirty=priorDirty;let storageRestored=false;
+  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(priorData));storageRestored=true;}catch(restoreError){}
+  return {ok:false,message:'تعذر إتمام إلغاء التحويل؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+String(err&&err.message||err)};
  }
 }
 function cancelFinancialTransaction(id,reason){
@@ -150,7 +150,7 @@ function cancelFinancialTransaction(id,reason){
  }catch(err){
   data=priorData;dirty=priorDirty;
   try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){}
-  return {ok:false,message:'تعذر إتمام الإلغاء؛ أُعيدت البيانات إلى حالتها السابقة. '+String(err&&err.message||err)};
+  return {ok:false,message:'تعذر إتمام الإلغاء؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+String(err&&err.message||err)};
  }
 }function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
 function walletTimelineValid(wid,extra={}){const w=data.wallets.find(x=>x.id===wid);if(!w)return false;const opening=Number(w.opening??0);if(!Number.isSafeInteger(opening)||opening<0)return false;const events=[];data.transactions.filter(t=>isFinancialActive(t)&&t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0),allowNegative:t.type==='debt_repayment'}));data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{const amount=Number(t.amount||0),date=String(t.date||''),time=String(t.createdAt||''),cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10),cancelTime=String(t.cancelledAt||'');if(t.from===wid)events.push({date,time,id:String(t.id||''),delta:-amount,allowNegative:false});if(t.to===wid)events.push({date,time,id:String(t.id||''),delta:amount,allowNegative:false});if(cancelled&&cancelDate){if(t.from===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:amount,allowNegative:false});if(t.to===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:-amount,allowNegative:false});}});if(extra.transaction&&extra.transaction.walletId===wid){const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0),allowNegative:t.type==='debt_repayment'});}if(extra.transfer){const t=extra.transfer;if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0),allowNegative:false});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0),allowNegative:false});}events.forEach((e,i)=>e.sequence=i);events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.sequence-b.sequence);let running=opening;for(const e of events){if(!Number.isSafeInteger(e.delta))return false;const next=running+e.delta;if(!Number.isSafeInteger(next))return false;if(next<0&&!e.allowNegative&&!(running<0&&e.delta>0))return false;running=next;}return true;}
@@ -727,8 +727,9 @@ async function parseBackupFile(file){
  return candidate;
 }
 async function runBackupSelfTests(){
- const original=data,originalDirty=dirty,oldPrompt=window.prompt,results=[];
+ const original=data,originalDirty=dirty,originalCommitted=committedDataSnapshot,oldPrompt=window.prompt,results=[];
  const check=(name,passed,detail='')=>results.push({name,passed:!!passed,detail});
+ const snapshotFixture={...fresh(),wallets:[{id:'committed-wallet',name:'محفوظة',opening:1250}]};committedDataSnapshot=snapshotFixture;data={...fresh(),wallets:[{id:'uncommitted-wallet',name:'غير محفوظة',opening:999}]};dirty=true;let committedRestore=false;try{restoreCommittedData();committedRestore=data.wallets.length===1&&data.wallets[0].id==='committed-wallet'&&dirty===false;}catch(e){}check('استعادة آخر حالة معتمدة عند تعذر قراءة التخزين',committedRestore,'لا تبقى طفرة الذاكرة غير المحفوظة بعد فشل قراءة localStorage');
  const fileFor=obj=>{const text=JSON.stringify(obj);return {size:new TextEncoder().encode(text).length,text:async()=>text};};
  const basePayload=()=>({...fresh(),wallets:[],transactions:[],transfers:[],debts:[],payments:[],accounts:[],journalEntries:[],audit:[]});
  try{
@@ -895,7 +896,7 @@ async function runBackupSelfTests(){
   check('رفض دمج تحويل ملغى إذا غاب سجل تدقيقه',incompleteMergeRejected,'يُفحص ترابط البيانات بعد تكوين مجموعة الدمج');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
- finally{data=original;dirty=originalDirty;window.prompt=oldPrompt;}
+ finally{data=original;dirty=originalDirty;committedDataSnapshot=originalCommitted;window.prompt=oldPrompt;}
  return results;
 }
 function validateMerge(candidate){
