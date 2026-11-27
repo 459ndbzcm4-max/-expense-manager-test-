@@ -725,7 +725,7 @@ async function parseBackupFile(file){
  return candidate;
 }
 async function runBackupSelfTests(){
- const original=data,oldPrompt=window.prompt,results=[];
+ const original=data,originalDirty=dirty,oldPrompt=window.prompt,results=[];
  const check=(name,passed,detail='')=>results.push({name,passed:!!passed,detail});
  const fileFor=obj=>{const text=JSON.stringify(obj);return {size:new TextEncoder().encode(text).length,text:async()=>text};};
  const basePayload=()=>({...fresh(),wallets:[],transactions:[],transfers:[],debts:[],payments:[],accounts:[],journalEntries:[],audit:[]});
@@ -785,6 +785,10 @@ async function runBackupSelfTests(){
   const oldUnitEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,checksum:await sha256Hex(JSON.stringify(oldUnitPayload)),payload:oldUnitPayload};
   let oldUnitRejected=false;try{await parseBackupFile(fileFor(oldUnitEnvelope));}catch(e){oldUnitRejected=String(e.message).includes('وحدة المبالغ في النسخة غير مدعومة');}
   check('رفض نسخة بوحدة نقدية قديمة دون تحويل تلقائي',oldUnitRejected,'لا تُحوّل مبالغ النسخ المستوردة القديمة ضمنيًا');
+  const testStorage=()=>{const values=new Map([[KEY,'prior-raw'],[KEY+'.rollback.test','rollback-raw']]);return {values,getItem:k=>values.has(k)?values.get(k):null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k)};};
+  const priorTestData={wallets:[{id:'prior'}]},activeTestData={wallets:[{id:'incoming'}]},store1=testStorage();data=activeTestData;dirty=true;let redrawMerge=false,mergeRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',null,store1,()=>{redrawMerge=true;});mergeRollbackOk=data===priorTestData&&!dirty&&store1.getItem(KEY)==='prior-raw'&&redrawMerge;}catch(e){}check('إرجاع حالة الدمج السابقة وإعادة رسمها بعد الفشل',mergeRollbackOk,'تُستعاد الذاكرة والتخزين والواجهة قبل إظهار الخطأ');
+  const store2=testStorage();data=activeTestData;dirty=true;let restoreRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store2,()=>{});restoreRollbackOk=data===priorTestData&&!dirty&&store2.getItem(KEY)==='prior-raw'&&!store2.values.has(KEY+'.rollback.test');}catch(e){}check('تنظيف نقطة رجوع الاستعادة وإرجاع التخزين السابق',restoreRollbackOk,'تُزال نقطة الرجوع المؤقتة ويعود السجل الأصلي');
+  const store3=testStorage();data=activeTestData;dirty=true;let renderFailureReported=false;try{rollbackImportedState(priorTestData,true,'prior-raw',null,store3,()=>{throw new Error('render test');});}catch(e){renderFailureReported=String(e.message).includes('أُعيدت البيانات والتخزين السابقان');}check('كشف فشل إعادة عرض الواجهة بعد استرجاع البيانات',renderFailureReported&&data===priorTestData&&dirty===true&&store3.getItem(KEY)==='prior-raw','تُذكر للمستخدم ضرورة إعادة تحميل التطبيق دون إخفاء أن التخزين استُعيد');
   const encryptedPayload=basePayload(),encryptedText=JSON.stringify(encryptedPayload),salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),password='Backup-Test-2026!';
   const key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(encryptedText));
   const encryptedEnvelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher))};
@@ -884,7 +888,7 @@ async function runBackupSelfTests(){
   check('رفض دمج تحويل ملغى إذا غاب سجل تدقيقه',incompleteMergeRejected,'يُفحص ترابط البيانات بعد تكوين مجموعة الدمج');
 
  }catch(err){check('تشغيل اختبارات النسخ الاحتياطي',false,String(err&&err.message||err));}
- finally{data=original;window.prompt=oldPrompt;}
+ finally{data=original;dirty=originalDirty;window.prompt=oldPrompt;}
  return results;
 }
 function validateMerge(candidate){
@@ -902,7 +906,16 @@ function validateMerge(candidate){
 }
 $('exportJson').addEventListener('click',async()=>{try{const content=await makeBackup(false);download('مدير-المصاريف-نسخة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء نسخة موثقة مع بصمة سلامة SHA-256.';}catch(err){alert(err.message);}});
 $('exportEncrypted').addEventListener('click',async()=>{try{const content=await makeBackup(true);if(content)download('مدير-المصاريف-مشفرة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء النسخة المشفرة محليًا.';}catch(err){alert(err.message);}});
-let importMode='replace';$('importFile').addEventListener('change',async e=>{const file=e.target.files&&e.target.files[0];if(!file)return;try{
+let importMode='replace';function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
+ data=priorData;dirty=priorDirty;
+ if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
+ try{if(priorRaw===null)storage.removeItem(KEY);else storage.setItem(KEY,priorRaw);}
+ catch(restoreError){throw new Error('تعذر إرجاع التخزين السابق؛ أوقف استخدام التطبيق واحتفظ بملف النسخة الأصلية. السبب: '+String(restoreError&&restoreError.message||restoreError));}
+ try{redraw();}
+ catch(renderError){throw new Error('أُعيدت البيانات والتخزين السابقان، لكن تعذر إعادة عرض الشاشة. أعد تحميل التطبيق قبل المتابعة. السبب: '+String(renderError&&renderError.message||renderError));}
+ return true;
+}
+$('importFile').addEventListener('change',async e=>{const file=e.target.files&&e.target.files[0];if(!file)return;try{
  const candidate=await parseBackupFile(file),summary='الملف صالح مبدئيًا. المحافظ: '+candidate.wallets.length+'، الحسابات: '+candidate.accounts.length+'، العمليات: '+candidate.transactions.length+'، التحويلات: '+candidate.transfers.length+'، الذمم: '+candidate.debts.length+'، التسويات: '+candidate.payments.length+'، سجلات التدقيق: '+candidate.audit.length;
  $('backupPreview').textContent=summary;
  if(importMode==='merge'){
@@ -912,13 +925,13 @@ let importMode='replace';$('importFile').addEventListener('change',async e=>{con
   if(!confirm(summary+'\n\nسيُضاف فقط ما لا يتعارض من السجلات. هل تعتمد الدمج؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
   try{data=merged;save();renderAll();$('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي.';}
-  catch(err){data=priorData;dirty=priorDirty;try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){throw new Error('فشل الدمج وفشل استرجاع التخزين السابق؛ أوقف استخدام التطبيق واحتفظ بنسخة البيانات الحالية. السبب: '+String(restoreError&&restoreError.message||restoreError));}throw err;}
+  catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,null);}catch(rollbackError){throw new Error('فشل الدمج. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
  }else{
   if(!confirm(summary+'\n\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
   const rollbackKey=KEY+'.rollback.'+Date.now();
   try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. أُنشئت نقطة رجوع محلية.';}
-  catch(err){data=priorData;dirty=priorDirty;try{localStorage.removeItem(rollbackKey);}catch(cleanupError){}try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){throw new Error('فشلت الاستعادة وتعذر إرجاع التخزين السابق؛ احتفظ بالنسخة الاحتياطية الأصلية ولا تتابع إدخال البيانات. السبب: '+String(restoreError&&restoreError.message||restoreError));}throw err;}
+  catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}catch(rollbackError){throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
  }
 }catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{e.target.value='';}});
 $('mergeJson').addEventListener('click',()=>{importMode='merge';$('importFile').click();});$('importFile').addEventListener('click',()=>{if(importMode!=='merge')importMode='replace';});
