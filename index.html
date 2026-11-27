@@ -1121,7 +1121,7 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
    if(recoveryMode){dataLoadBlocked=true;recoveryImportInProgress=false;}
    throw err;
   }
- }}
+ }
 }catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{importMode='replace';mergePickerRequested=false;e.target.value='';}});
 $('mergeJson').addEventListener('click',()=>{importMode='merge';mergePickerRequested=true;$('importFile').click();});$('importFile').addEventListener('click',consumeImportPickerClick);
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
