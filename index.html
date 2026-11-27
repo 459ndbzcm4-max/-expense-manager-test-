@@ -268,12 +268,15 @@ function runLedgerSelfTests(){
  const accountUsedDelete=validateAccountMutation(accountTestRows,accountTestTx,'account-test-income',{type:'delete'});
  const accountUnusedType=validateAccountMutation(accountTestRows,accountTestTx,'account-test-unused',{type:'changeType',value:'income'});
  const accountUnusedDelete=validateAccountMutation(accountTestRows,accountTestTx,'account-test-unused',{type:'delete'});
+ const accountParentDelete=validateAccountMutation([...accountTestRows,{id:'account-test-child',name:'فرعي',parentId:'account-test-income'}],[], 'account-test-income',{type:'delete'});
+
  check('السماح بتعديل اسم الحساب دون تغيير معرفه',accountRename.valid&&accountRename.name==='دخل إضافي','تعديل الاسم يحافظ على مرجع الحساب');
  check('رفض اسم حساب مكرر ضمن النوع نفسه',!accountDuplicate.valid,'لا يسمح بتكرار الاسم والنوع');
  check('منع تغيير نوع حساب مرتبط بمعاملة',!accountUsedType.valid,'تحمى طبيعة القيود السابقة');
  check('منع حذف حساب مستخدم في معاملة',!accountUsedDelete.valid,'تحمى مراجع المعاملات');
  check('السماح بتغيير نوع حساب غير مستخدم',accountUnusedType.valid&&accountUnusedType.value==='income','الحساب غير المرتبط بحركات يمكن تصنيفه');
  check('السماح بحذف حساب غير مستخدم',accountUnusedDelete.valid,'لا توجد معاملات تشير إليه');
+ check('منع حذف حساب له حسابات فرعية',!accountParentDelete.valid,'حماية علاقات الحسابات الهرمية القديمة من المراجع اليتيمة');
 
  try{
   const receivable={id:'test-dr',type:'receivable',person:'اختبار ذمم مدينة',amount:5000};
@@ -673,6 +676,7 @@ function validateAccountMutation(accounts,transactions,id,mutation){
   return {valid:true,account,value:mutation.value};
  }
  if(mutation.type==='delete'){
+  if(accounts.some(a=>a.parentId===id))return {valid:false,message:'لا يمكن حذف حساب مرتبط بحسابات فرعية؛ احذف أو أعد تنظيم الحسابات التابعة أولًا.'};
   if(used)return {valid:false,message:'لا يمكن حذف حساب مرتبط بمعاملات محفوظة، بما فيها المعاملات الملغاة؛ حفاظًا على السجل المحاسبي.'};
   return {valid:true,account};
  }
