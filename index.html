@@ -89,9 +89,11 @@ function ensureMoneyInFils(target){
 // إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
 // لا تُنفّذ معالجة تلقائية لسجلات التسويات القديمة؛ تبقى بيانات المستخدم كما هي حتى اعتماد أداة إصلاح صريحة.
 ;
-function save(){const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
+function assertStorageWritable(){if(dataLoadBlocked)throw new Error('الكتابة متوقفة لأن قراءة البيانات المحلية لم تنجح أو لأن إصدارها غير معروف. أُبقيت البيانات الأصلية دون تعديل.');}
+function save(){assertStorageWritable();const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
 function restoreCommittedData(){data=JSON.parse(JSON.stringify(committedDataSnapshot));dirty=false;}
 function changed(action,details){
+ if(dataLoadBlocked){alert('أُلغيت العملية؛ الكتابة متوقفة حفاظًا على البيانات المحلية التي تعذرت قراءتها.');return false;}
  let priorRaw;
  try{priorRaw=localStorage.getItem(KEY);}catch(err){restoreCommittedData();alert('تعذر التحقق من حالة التخزين السابقة؛ أُلغيت العملية وأُعيدت آخر حالة محفوظة في الذاكرة. '+String(err&&err.message||err));return false;}
  data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||''),actor:'local_owner'});
@@ -800,6 +802,7 @@ async function parseBackupFile(file){
 async function runBackupSelfTests(){
  const original=data,originalDirty=dirty,originalCommitted=committedDataSnapshot,oldPrompt=window.prompt,results=[];
  const check=(name,passed,detail='')=>results.push({name,passed:!!passed,detail});
+ const priorBlocked=dataLoadBlocked;let blockedWriteRejected=false;try{dataLoadBlocked=true;try{assertStorageWritable();}catch(e){blockedWriteRejected=String(e&&e.message||e).includes('الكتابة متوقفة');}}finally{dataLoadBlocked=priorBlocked;}check('منع الكتابة عند تعذر تحميل البيانات',blockedWriteRejected,'طبقة الحفظ ترفض أي كتابة عندما تكون بوابة حماية البيانات مفعّلة');
  const migrationOriginalData=data,migrationOriginalSnapshot=committedDataSnapshot,migrationOriginalDirty=dirty;let migrationRollbackPassed=false;try{const prior={...fresh(),wallets:[{id:'migration-before',name:'قبل',opening:2300}]},raw=JSON.stringify(prior),fake={value:'',setItem(k,v){this.value=v;},getItem(){return this.value;}};data={...fresh(),wallets:[{id:'migration-after',name:'بعد',opening:2300000}]};committedDataSnapshot=JSON.parse(JSON.stringify(data));dirty=true;rollbackMoneyMigration(prior,raw,fake);migrationRollbackPassed=data.wallets[0].id==='migration-before'&&committedDataSnapshot.wallets[0].id==='migration-before'&&fake.value===raw&&dirty===false;}catch(e){}finally{data=migrationOriginalData;committedDataSnapshot=migrationOriginalSnapshot;dirty=migrationOriginalDirty;}check('استعادة لقطة البيانات عند فشل ترحيل وحدة المبالغ',migrationRollbackPassed,'يعاد الملف والذاكرة ولقطة الحالة المعتمدة إلى ما قبل التحويل');
  const snapshotFixture={...fresh(),wallets:[{id:'committed-wallet',name:'محفوظة',opening:1250}]};committedDataSnapshot=snapshotFixture;data={...fresh(),wallets:[{id:'uncommitted-wallet',name:'غير محفوظة',opening:999}]};dirty=true;let committedRestore=false;try{restoreCommittedData();committedRestore=data.wallets.length===1&&data.wallets[0].id==='committed-wallet'&&dirty===false;}catch(e){}check('استعادة آخر حالة معتمدة عند تعذر قراءة التخزين',committedRestore,'لا تبقى طفرة الذاكرة غير المحفوظة بعد فشل قراءة localStorage');
  const fileFor=obj=>{const text=JSON.stringify(obj);return {size:new TextEncoder().encode(text).length,text:async()=>text};};
