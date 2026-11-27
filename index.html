@@ -804,6 +804,7 @@ async function runBackupSelfTests(){
   window.prompt=()=>'Incorrect-Password!';
   let wrongPasswordRejected=false;try{await parseBackupFile(fileFor(encryptedEnvelope));}catch(e){wrongPasswordRejected=String(e.message).includes('تعذر فك التشفير');}
   check('رفض كلمة المرور الخاطئة',wrongPasswordRejected,'لا تُعاد أي بيانات عند فشل AES-GCM');
+  window.prompt=()=>password;
   const tamperedCipher={...encryptedEnvelope,ciphertext:bytesToB64(Uint8Array.from([...b64ToBytes(encryptedEnvelope.ciphertext)].map((v,i)=>i===0?v^1:v)))};
   let tamperedCipherRejected=false;try{await parseBackupFile(fileFor(tamperedCipher));}catch(e){tamperedCipherRejected=String(e.message).includes('تعذر فك التشفير');}
   check('رفض تعديل النص المشفر أو وسم المصادقة',tamperedCipherRejected,'يجب أن يكشف AES-GCM أي تعديل في ciphertext أو authentication tag');
