@@ -98,7 +98,7 @@ function assertStorageWritable(){if(dataLoadBlocked)throw new Error('الكتا�
 function save(){assertStorageWritable();const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
 function restoreCommittedData(){data=JSON.parse(JSON.stringify(committedDataSnapshot));dirty=false;}
 function changed(action,details){
- if(dataLoadBlocked){alert('أُلغيت العملية؛ الكتابة متوقفة حفاظًا على البيانات المحلية التي تعذرت قراءتها.');return false;}
+ if(dataLoadBlocked||moneyMigrationPending){try{restoreCommittedData();}catch(e){}alert(dataLoadBlocked?'أُلغيت العملية؛ الكتابة متوقفة حفاظًا على البيانات المحلية التي تعذرت قراءتها.':'أُلغيت العملية؛ يجب حسم تحويل وحدة المبالغ قبل أي تعديل.');return false;}
  let priorRaw;
  try{priorRaw=localStorage.getItem(KEY);}catch(err){restoreCommittedData();alert('تعذر التحقق من حالة التخزين السابقة؛ أُلغيت العملية وأُعيدت آخر حالة محفوظة في الذاكرة. '+String(err&&err.message||err));return false;}
  data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||''),actor:'local_owner'});
