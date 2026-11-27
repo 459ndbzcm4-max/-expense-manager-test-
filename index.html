@@ -1338,9 +1338,9 @@ function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage
  }catch(restoreError){
   throw new Error('تعذر إرجاع التخزين السابق. لم تُحذف نقطة الرجوع المحلية؛ نزّلها من صفحة النسخ الاحتياطي واحتفظ بها قبل أي محاولة أخرى. السبب: '+String(restoreError&&restoreError.message||restoreError));
  }
- if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
  try{redraw();}
- catch(renderError){throw new Error('أُعيدت البيانات والتخزين السابقان، لكن تعذر إعادة عرض الشاشة. أعد تحميل التطبيق قبل المتابعة. السبب: '+String(renderError&&renderError.message||renderError));}
+ catch(renderError){throw new Error('أُعيدت البيانات والتخزين السابقان، لكن تعذر إعادة عرض الشاشة. بقيت نقطة الرجوع المحلية محفوظة؛ أعد تحميل التطبيق قبل المتابعة. السبب: '+String(renderError&&renderError.message||renderError));}
+ if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
  return true;
 }
 function getRollbackSnapshot(storage=localStorage){
