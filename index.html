@@ -252,6 +252,8 @@ function validateJournalEntries(entries=getJournalEntries()){
 function runLedgerSelfTests(){
  const original=data,results=[];
  const check=(name,condition,detail='')=>results.push({name,passed:!!condition,detail});
+ const legacyAccountOptions=eligibleAccountsForType([{id:'known-income',name:'إيراد',type:'income'},{id:'known-expense',name:'مصروف',type:'expense'},{id:'legacy-unclassified',name:'قديم'}],'income');
+ check('استبعاد الحساب غير المصنف من خيارات المعاملات الجديدة',legacyAccountOptions.length===1&&legacyAccountOptions[0].id==='known-income','لا يُسمح بتوجيه قيد جديد إلى حساب لا يعرف الأستاذ طبيعته');
  const sameNameAccounts=[{id:'same-income',name:'مشترك',type:'income'},{id:'same-expense',name:'مشترك',type:'expense'}];
  const sameNameRows=[{accountId:'same-income',type:'income',amount:125},{accountId:'same-expense',type:'expense',amount:40}];
  const sameNameSummary=summarizeAccountActivity(sameNameRows,sameNameAccounts);
@@ -635,7 +637,8 @@ function runLedgerSelfTests(){
 function accountLabel(id){const a=data.accounts.find(x=>x.id===id);return a?a.name:'غير محدد';}
 function accountTypeOf(a){if(!a)return '';if(a.type==='income'||a.type==='expense')return a.type;const n=String(a.name||'');if(a.level==='parent'){if(n.includes('إيراد'))return 'income';if(n.includes('مصروف'))return 'expense';}if(a.parentId){const p=data.accounts.find(x=>x.id===a.parentId);if(p)return accountTypeOf(p);}return '';}
 function accountTypeLabel(type){return type==='income'?'إيرادات':type==='expense'?'مصروفات':'قديم / غير مصنف';}
-function accountsForType(type){return data.accounts.filter(a=>{const at=accountTypeOf(a);return !at||at===type;}).map(a=>({value:a.id,label:accountLabel(a.id)+(accountTypeOf(a)?' — '+accountTypeLabel(accountTypeOf(a)):' — حساب قديم')}));}
+function eligibleAccountsForType(accounts,type){return accounts.filter(a=>accountTypeOf(a)===type);}
+function accountsForType(type){return eligibleAccountsForType(data.accounts,type).map(a=>({value:a.id,label:accountLabel(a.id)+' — '+accountTypeLabel(accountTypeOf(a))}));}
 function debtGroupKey(d){return String(d.type||'')+'|'+String(d.person||'').trim().toLocaleLowerCase();}
 function groupSettlementPaid(key){return data.payments.filter(p=>isFinancialActive(p)&&p.groupKey===key).reduce((s,p)=>s+(Number(p.amount)||0),0);}
 function groupDebts(items){
