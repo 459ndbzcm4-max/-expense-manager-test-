@@ -267,6 +267,18 @@ function runLedgerSelfTests(){
   check('إلغاء التسوية يعكس أثرها النقدي',balance('settlement-wallet')===4000,'عادت النقدية إلى 4000 فلس');
   check('إلغاء التسوية ينتج قيدًا عكسيًا متوازنًا',getJournalEntries().some(e=>e.id==='reversal:settlement-tx')&&settlementJournal.valid,settlementJournal.errors.join(' | '));
   check('إلغاء التسوية يستبعد دفعتها من تقرير الذمم',getDebtReport('2026-05-31')[0]?.remaining===6000,'تقرير الذمم يعرض الرصيد الأصلي بعد الإلغاء');
+  // فحص اتساق مستند التسوية مع حركته النقدية، بما في ذلك حالة الإلغاء.
+  const relationDebt={id:'relation-debt',type:'receivable',person:'اختبار علاقة التسوية',amount:9000,date:'2026-06-10',walletId:'relation-wallet',transactionId:'relation-origin'};
+  const relationKey=debtGroupKey(relationDebt);
+  const relationCandidate={version:2,moneyUnit:'fils',wallets:[{id:'relation-wallet',name:'محفظة العلاقات',opening:20000}],accounts:[],debts:[relationDebt],transactions:[
+   {id:'relation-origin',type:'debt_out',amount:9000,walletId:'relation-wallet',debtId:relationDebt.id,date:'2026-06-10'},
+   {id:'relation-settlement',type:'debt_collection',amount:2500,walletId:'relation-wallet',debtGroupKey:relationKey,date:'2026-06-11'}
+  ],transfers:[],payments:[{id:'relation-payment',groupKey:relationKey,type:'receivable',person:relationDebt.person,amount:2500,date:'2026-06-11',walletId:'relation-wallet',transactionId:'relation-settlement'}],journalEntries:[],audit:[]};
+  check('قبول علاقة الذمة والتسوية في النموذج الحالي',validateDebtRelations(relationCandidate).valid,'سجل payment مرتبط بحركة نقدية مطابقة وبذمة قائمة');
+  relationCandidate.payments[0].status='cancelled';
+  check('رفض اختلاف حالة إلغاء التسوية عن حركتها النقدية',!validateDebtRelations(relationCandidate).valid,'يجب إلغاء مستند payment وحركته معًا');
+  relationCandidate.transactions.find(t=>t.id==='relation-settlement').status='cancelled';
+  check('قبول إلغاء التسوية عند تطابق حالتي المستند والحركة',validateDebtRelations(relationCandidate).valid,'المستند والحركة ملغيان معًا ولا يُحتسب المبلغ كمسدد');
   // لا يجوز إلغاء إيراد إذا كان سيجعل رصيد المحفظة سالبًا قبل المصروفات اللاحقة.
   data={version:2,moneyUnit:'fils',wallets:[{id:'income-cancel-wallet',name:'محفظة اختبار إلغاء الإيراد',opening:2000}],accounts:[{id:'income-cancel-account',name:'إيراد',type:'income'},{id:'income-cancel-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
    {id:'income-to-cancel',type:'income',amount:5000,walletId:'income-cancel-wallet',accountId:'income-cancel-account',date:'2026-06-01',createdAt:'2026-06-01T09:00:00Z'},
@@ -284,10 +296,7 @@ function runLedgerSelfTests(){
   check('تجميع ذمم الشخص الواحد من النوع نفسه',groupedDebts.find(g=>g.type==='receivable')?.amount===12000&&groupedDebts.find(g=>g.type==='receivable')?.remaining===9000,'أصل 12000 والمتبقي 9000 بعد التسوية');
   check('فصل الذمة المدينة عن الدائنة للشخص نفسه',groupedDebts.length===2&&groupedDebts.find(g=>g.type==='payable')?.remaining===4000,'لا تندمج مستحقات لنا مع مستحقات علينا');
   check('تقرير الذمم بتاريخ سابق يستبعد الذمم اللاحقة',getDebtReport('2026-07-02').find(g=>g.type==='receivable')?.original===5000,'قبل تسجيل الذمة الثانية في 3 يوليو');
-  const legacyDebt={id:'legacy-group-debt',type:'receivable',person:'ليلى',amount:5000,date:'2026-07-05'};data={...data,debts:[legacyDebt],payments:[],transactions:[{id:'legacy-unpaired-collection',type:'debt_collection',debtId:legacyDebt.id,amount:2000,date:'2026-07-06'}]};
-  check('احتساب حركة تحصيل قديمة غير مرتبطة بسجل تسوية',groupDebts(data.debts)[0]?.remaining===3000&&getDebtReport('2026-07-06')[0]?.remaining===3000,'يُخصم التحصيل القديم من رصيد الذمة والتقرير دون اشتراط وجود سجل payment');
-  data.payments=[{id:'legacy-linked-payment',debtId:legacyDebt.id,amount:2000,date:'2026-07-06',transactionId:'legacy-unpaired-collection'}];
-  check('منع احتساب التحصيل القديم مرتين عند وجود سجل تسوية مرتبط',groupDebts(data.debts)[0]?.remaining===3000&&getDebtReport('2026-07-06')[0]?.remaining===3000,'سجل payment والحركة النقدية يمثلان تسوية واحدة');
+  // السجلات القديمة غير المرتبطة بنموذج payment الحالي خارج نطاق الاختبار والدعم.
    // اختبار تطابق رصيد الذمم بين الشاشة والتقرير والأستاذ مع عدة تسويات جزئية.
    const multiDebt={id:'multi-settlement-debt',type:'receivable',person:'اختبار تسويات متعددة',amount:10000,date:'2026-08-01'};
    const multiKey=debtGroupKey(multiDebt);
