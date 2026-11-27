@@ -267,6 +267,23 @@ function runLedgerSelfTests(){
   check('إلغاء التسوية يعكس أثرها النقدي',balance('settlement-wallet')===4000,'عادت النقدية إلى 4000 فلس');
   check('إلغاء التسوية ينتج قيدًا عكسيًا متوازنًا',getJournalEntries().some(e=>e.id==='reversal:settlement-tx')&&settlementJournal.valid,settlementJournal.errors.join(' | '));
   check('إلغاء التسوية يستبعد دفعتها من تقرير الذمم',getDebtReport('2026-05-31')[0]?.remaining===6000,'تقرير الذمم يعرض الرصيد الأصلي بعد الإلغاء');
+  // اختبار إلغاء سداد ذمة دائنة: يعاد رصيد الالتزام والنقدية ويُنشأ قيد عكسي متوازن.
+  const payableSettlementDebt={id:'payable-settlement-debt',type:'payable',person:'اختبار إلغاء سداد دائن',amount:6000,date:'2026-05-01'};
+  const payableSettlementKey=debtGroupKey(payableSettlementDebt);
+  data={version:2,moneyUnit:'fils',wallets:[{id:'payable-settlement-wallet',name:'محفظة سداد الدائن',opening:10000,created:'2026-05-01'}],accounts:[],debts:[payableSettlementDebt],transactions:[
+   {id:'payable-settlement-origin',type:'debt_in',amount:6000,walletId:'payable-settlement-wallet',debtId:payableSettlementDebt.id,date:'2026-05-01'},
+   {id:'payable-settlement-tx',type:'debt_repayment',amount:2000,walletId:'payable-settlement-wallet',debtGroupKey:payableSettlementKey,date:'2026-05-02'}
+  ],transfers:[],payments:[{id:'payable-settlement-payment',groupKey:payableSettlementKey,type:'payable',person:payableSettlementDebt.person,amount:2000,date:'2026-05-02',walletId:'payable-settlement-wallet',transactionId:'payable-settlement-tx'}],audit:[]};
+  check('سداد الذمة الدائنة يخفض الالتزام والنقدية',groupDebts(data.debts)[0].remaining===4000&&balance('payable-settlement-wallet')===14000,'المتبقي 4000 والنقدية 14000 فلس');
+  const payableSettlementTx=data.transactions.find(t=>t.id==='payable-settlement-tx');
+  payableSettlementTx.status='cancelled';payableSettlementTx.cancelledAt='2026-05-03T10:00:00Z';payableSettlementTx.cancelledDate='2026-05-03';
+  const payableSettlementPayment=data.payments.find(p=>p.id==='payable-settlement-payment');
+  payableSettlementPayment.status='cancelled';payableSettlementPayment.cancelledAt=payableSettlementTx.cancelledAt;payableSettlementPayment.cancelledDate=payableSettlementTx.cancelledDate;
+  const payableReversal=getJournalEntries().filter(e=>e.id==='reversal:payable-settlement-tx');
+  const payableJournal=validateJournalEntries(getJournalEntries());
+  check('إلغاء سداد الدائن يعيد كامل رصيد الالتزام',groupDebts(data.debts)[0].remaining===6000,'عاد المتبقي إلى 6000 فلس');
+  check('إلغاء سداد الدائن يعيد النقدية إلى المحفظة',balance('payable-settlement-wallet')===16000,'عادت النقدية إلى 16000 فلس');
+  check('إلغاء سداد الدائن ينشئ قيدًا عكسيًا واحدًا ومتوازنًا',payableReversal.length===1&&payableJournal.valid,payableJournal.errors.join(' | '));
   // فحص اتساق مستند التسوية مع حركته النقدية، بما في ذلك حالة الإلغاء.
   const relationDebt={id:'relation-debt',type:'receivable',person:'اختبار علاقة التسوية',amount:9000,date:'2026-06-10',walletId:'relation-wallet',transactionId:'relation-origin'};
   const relationKey=debtGroupKey(relationDebt);
