@@ -1344,10 +1344,13 @@ function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage
  return true;
 }
 function getRollbackSnapshot(storage=localStorage){
- try{const latest=storage.getItem(ROLLBACK_KEY);if(latest)return {key:ROLLBACK_KEY,raw:latest};
+ try{
+  const latest=storage.getItem(ROLLBACK_KEY);
+  if(latest){try{JSON.parse(latest);return {key:ROLLBACK_KEY,raw:latest};}catch(invalidLatest){}}
   const keys=[];for(let i=0;i<storage.length;i++){const key=storage.key(i);if(key&&key.startsWith(KEY+'.rollback.')&&Number.isSafeInteger(Number(key.slice((KEY+'.rollback.').length)))&&Number(key.slice((KEY+'.rollback.').length))>0)keys.push(key);}
   keys.sort((a,b)=>Number(b.slice((KEY+'.rollback.').length))-Number(a.slice((KEY+'.rollback.').length)));
-  for(const key of keys){const raw=storage.getItem(key);if(raw)return {key,raw};}
+  for(const key of keys){const raw=storage.getItem(key);if(raw){try{JSON.parse(raw);return {key,raw};}catch(invalidSnapshot){}}}
+  if(latest)return {key:ROLLBACK_KEY,raw:latest};
  }catch(err){throw new Error('تعذر قراءة نقطة الرجوع المحلية: '+String(err&&err.message||err));}
  return null;
 }
