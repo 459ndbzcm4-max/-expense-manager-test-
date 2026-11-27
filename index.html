@@ -128,8 +128,8 @@ function cancelWalletTransfer(id,reason){
   const target=data.transfers.find(x=>x.id===id),oldValues={status:target.status||'posted',amount:target.amount,from:target.from,to:target.to,date:target.date};
   target.status='cancelled';target.cancelledAt=new Date().toISOString();target.cancelledDate=today();target.cancelledBy='local_owner';target.cancelReason=reason.trim();
   if(!walletTimelineValid(target.from)||!walletTimelineValid(target.to))throw new Error('لا يمكن إلغاء التحويل؛ قد يؤدي القيد العكسي إلى رصيد نقدي سالب في إحدى المحافظ.');
-  const validation=validateJournalEntries(getJournalEntries());if(!validation.valid)throw new Error('تعذر اعتماد القيد العكسي: '+validation.errors.slice(0,3).join('؛ '));
   data.audit.push({id:uid(),date:target.cancelledAt,dateLocal:target.cancelledDate,action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:target.id,actor:target.cancelledBy,oldValues,newValues:{status:'cancelled',cancelledBy:target.cancelledBy,cancelReason:reason.trim()},reason:reason.trim()});
+  const validation=validateJournalEntries(getJournalEntries());if(!validation.valid)throw new Error('تعذر اعتماد القيد العكسي: '+validation.errors.slice(0,3).join('؛ '));
   save();renderAll();return {ok:true};
  }catch(err){
   data=priorData;dirty=priorDirty;let storageRestored=false;
@@ -157,6 +157,7 @@ function cancelFinancialTransaction(id,reason){
   data.payments.filter(p=>p.transactionId===target.id&&isFinancialActive(p)).forEach(p=>{p.status='cancelled';p.cancelledAt=target.cancelledAt;p.cancelledDate=target.cancelledDate;p.cancelReason=reason;});
   if(debt&&(target.type==='debt_out'||target.type==='debt_in')){debt.status='cancelled';debt.cancelledAt=target.cancelledAt;debt.cancelledDate=target.cancelledDate;debt.cancelledBy=target.cancelledBy;debt.cancelReason=reason;}
   data.audit.push({id:uid(),date:target.cancelledAt,dateLocal:target.cancelledDate,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:target.id,actor:target.cancelledBy,oldValues,newValues:{status:'cancelled',cancelledBy:target.cancelledBy,cancelReason:reason},reason});
+  const validation=validateJournalEntries(getJournalEntries());if(!validation.valid)throw new Error('تعذر اعتماد القيد العكسي: '+validation.errors.slice(0,3).join('؛ '));
   save();renderAll();return {ok:true};
  }catch(err){
   data=priorData;dirty=priorDirty;let storageRestored=false;
@@ -262,8 +263,28 @@ function getLedgerBalances(entries=getJournalEntries()){
  return [...map.values()].filter(a=>a.debitMinor||a.creditMinor);
 }
 
+function validateCancellationAuditRecord(record,recordType,auditRows,expectedAction){
+ const errors=[],cancelled=record&&record.status==='cancelled',rows=(auditRows||[]).filter(a=>a&&a.recordType===recordType&&a.recordId===record.id);
+ if(!record||!record.id)return ['سجل '+recordType+' بلا معرّف عند فحص الإلغاء'];
+ if(!cancelled){if(rows.length)errors.push('سجل تدقيق إلغاء بلا حركة ملغاة: '+record.id);return errors;}
+ if(rows.length!==1){errors.push('سجل تدقيق الإلغاء مفقود أو مكرر: '+record.id);return errors;}
+ const a=rows[0],old=a.oldValues||{},next=a.newValues||{},cancelledDate=String(record.cancelledDate||'');
+ if(a.action!==expectedAction||a.date!==record.cancelledAt||a.dateLocal!==cancelledDate||a.actor!==record.cancelledBy||a.reason!==record.cancelReason||!record.cancelledAt||!Number.isFinite(Date.parse(record.cancelledAt))||!/^\d{4}-\d{2}-\d{2}$/.test(cancelledDate)||cancelledDate<String(record.date||'')||!String(record.cancelledBy||'').trim()||!String(record.cancelReason||'').trim())errors.push('بيانات سجل التدقيق لا تطابق بيانات الإلغاء: '+record.id);
+ if(next.status!=='cancelled'||next.cancelledBy!==record.cancelledBy||next.cancelReason!==record.cancelReason)errors.push('القيم الجديدة في سجل التدقيق غير مطابقة: '+record.id);
+ if(old.status==='cancelled'||Number(old.amount)!==Number(record.amount)||String(old.date)!==String(record.date))errors.push('القيم السابقة في سجل التدقيق غير مطابقة: '+record.id);
+ if(recordType==='transaction'&&old.type!==record.type)errors.push('نوع المعاملة السابق في سجل التدقيق غير مطابق: '+record.id);
+ if(recordType==='transaction'&&old.walletId!==record.walletId)errors.push('محفظة المعاملة السابقة في سجل التدقيق غير مطابقة: '+record.id);
+ if(recordType==='transfer'&&(old.from!==record.from||old.to!==record.to))errors.push('محافظ التحويل السابقة في سجل التدقيق غير مطابقة: '+record.id);
+ return errors;
+}
 function validateJournalEntries(entries=getJournalEntries()){
  const errors=[];const accounts=new Set(getLedgerAccounts().map(a=>a.id));
+ const cancelledTransactions=new Map(data.transactions.map(t=>[t&&t.id,t]));
+ data.transactions.forEach(t=>errors.push(...validateCancellationAuditRecord(t,'transaction',data.audit,'إلغاء عملية بقيد عكسي')));
+ (data.audit||[]).filter(a=>a&&a.recordType==='transaction').forEach(a=>{const t=cancelledTransactions.get(a.recordId);if(!t||t.status!=='cancelled'||a.action!=='إلغاء عملية بقيد عكسي')errors.push('سجل تدقيق معاملة يتيم أو بإجراء غير مطابق: '+a.recordId);});
+ const cancelledTransfers=new Map(data.transfers.map(t=>[t&&t.id,t]));
+ data.transfers.forEach(t=>errors.push(...validateCancellationAuditRecord(t,'transfer',data.audit,'إلغاء تحويل بين المحافظ بقيد عكسي')));
+ (data.audit||[]).filter(a=>a&&a.recordType==='transfer').forEach(a=>{const t=cancelledTransfers.get(a.recordId);if(!t||t.status!=='cancelled'||a.action!=='إلغاء تحويل بين المحافظ بقيد عكسي')errors.push('سجل تدقيق تحويل يتيم أو بإجراء غير مطابق: '+a.recordId);});
  entries.forEach(e=>{let debit=0,credit=0;if(!e.lines||e.lines.length<2)errors.push('قيد بلا طرفين: '+e.id);(e.lines||[]).forEach(l=>{debit+=l.debitMinor;credit+=l.creditMinor;if(!accounts.has(l.accountId))errors.push('حساب غير معروف '+l.accountId+' في '+e.id);if(!Number.isSafeInteger(l.debitMinor)||!Number.isSafeInteger(l.creditMinor)||l.debitMinor<0||l.creditMinor<0||((l.debitMinor>0)===(l.creditMinor>0)))errors.push('سطر قيد غير صالح في '+e.id);});if(debit!==credit)errors.push('القيد غير متوازن '+e.id+': '+debit+' / '+credit);});
  data.transactions.filter(t=>isFinancialActive(t)&&(t.type==='income'||t.type==='expense')).forEach(t=>{const account=data.accounts.find(a=>a.id===t.accountId),actual=accountTypeOf(account);if(actual&&actual!==t.type)errors.push('نوع الحساب لا يطابق نوع العملية '+t.id+': '+actual+' / '+t.type);});
  const walletIds=new Set(data.wallets.map(w=>w.id)),transferIds=new Set();
@@ -284,6 +305,14 @@ function validateJournalEntries(entries=getJournalEntries()){
 function runLedgerSelfTests(){
  const original=data,results=[];
  const check=(name,condition,detail='')=>results.push({name,passed:!!condition,detail});
+
+ const auditRecord={id:'audit-test',status:'cancelled',amount:500,type:'expense',walletId:'w',date:'2026-01-01',cancelledDate:'2026-01-02',cancelledAt:'2026-01-02T10:00:00.000Z',cancelledBy:'local_owner',cancelReason:'تصحيح'};
+ const auditRow={recordType:'transaction',recordId:'audit-test',action:'إلغاء عملية بقيد عكسي',date:auditRecord.cancelledAt,dateLocal:auditRecord.cancelledDate,actor:auditRecord.cancelledBy,reason:auditRecord.cancelReason,oldValues:{status:'posted',amount:500,type:'expense',walletId:'w',date:'2026-01-01'},newValues:{status:'cancelled',cancelledBy:'local_owner',cancelReason:'تصحيح'}};
+ check('قبول سجل تدقيق إلغاء مطابق',validateCancellationAuditRecord(auditRecord,'transaction',[auditRow],'إلغاء عملية بقيد عكسي').length===0,'بيانات الحركة وسجل التدقيق متطابقة');
+ check('رفض سجل تدقيق إلغاء مفقود',validateCancellationAuditRecord(auditRecord,'transaction',[],'إلغاء عملية بقيد عكسي').length>0,'لا يمر الإلغاء دون أثر تدقيق');
+ check('رفض سجل تدقيق إلغاء مكرر',validateCancellationAuditRecord(auditRecord,'transaction',[auditRow,auditRow],'إلغاء عملية بقيد عكسي').length>0,'لكل حركة ملغاة سجل واحد فقط');
+ check('رفض اختلاف القيم القديمة في سجل التدقيق',validateCancellationAuditRecord(auditRecord,'transaction',[{...auditRow,oldValues:{...auditRow.oldValues,amount:999}}],'إلغاء عملية بقيد عكسي').length>0,'القيم السابقة يجب أن تطابق المستند الأصلي');
+ check('رفض سجل إلغاء مرتبط بحركة ما زالت نشطة',validateCancellationAuditRecord({...auditRecord,status:'posted'},'transaction',[auditRow],'إلغاء عملية بقيد عكسي').length>0,'لا يقبل أثر إلغاء دون حالة ملغاة');
  const tomorrowDate=()=>{const d=new Date();d.setDate(d.getDate()+1);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
  check('قبول تاريخ مالي يوافق اليوم',validFinancialDate(today()),'تاريخ اليوم صالح للإدخال');
  check('رفض تاريخ مالي مستقبلي',!validFinancialDate(tomorrowDate()),'لا تُقبل حركة مالية مؤرخة بعد اليوم');
