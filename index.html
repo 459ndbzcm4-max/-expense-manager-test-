@@ -904,7 +904,7 @@ let importMode='replace';$('importFile').addEventListener('change',async e=>{con
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
   const rollbackKey=KEY+'.rollback.'+Date.now();
   try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. أُنشئت نقطة رجوع محلية.';}
-  catch(err){data=priorData;dirty=priorDirty;try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){throw new Error('فشلت الاستعادة وتعذر إرجاع التخزين السابق؛ احتفظ بالنسخة الاحتياطية الأصلية ولا تتابع إدخال البيانات. السبب: '+String(restoreError&&restoreError.message||restoreError));}throw err;}
+  catch(err){data=priorData;dirty=priorDirty;try{localStorage.removeItem(rollbackKey);}catch(cleanupError){}try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){throw new Error('فشلت الاستعادة وتعذر إرجاع التخزين السابق؛ احتفظ بالنسخة الاحتياطية الأصلية ولا تتابع إدخال البيانات. السبب: '+String(restoreError&&restoreError.message||restoreError));}throw err;}
  }
 }catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{e.target.value='';}});
 $('mergeJson').addEventListener('click',()=>{importMode='merge';$('importFile').click();});$('importFile').addEventListener('click',()=>{if(importMode!=='merge')importMode='replace';});
