@@ -632,17 +632,17 @@ const BACKUP_FORMAT='expense-manager-advanced-backup',BACKUP_SCHEMA=1,MAX_BACKUP
 const backupCollections=['wallets','accounts','transactions','transfers','debts','payments','journalEntries','audit'];
 const toBytes=value=>new TextEncoder().encode(value);
 const bytesToB64=bytes=>{let bin='';bytes.forEach(b=>bin+=String.fromCharCode(b));return btoa(bin);};
-const b64ToBytes=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
+const b64ToBytes=value=>{if(typeof value!=='string'||!value.length||value.length%4!==0||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value))throw new Error('Base64 غير صالح');const bytes=Uint8Array.from(atob(value),c=>c.charCodeAt(0));if(bytesToB64(bytes)!==value)throw new Error('Base64 غير قانوني');return bytes;};
 async function sha256Hex(value){const digest=await crypto.subtle.digest('SHA-256',toBytes(value));return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 async function deriveBackupKey(password,salt){const material=await crypto.subtle.importKey('raw',toBytes(password),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
 function backupPayload(){const copy=JSON.parse(JSON.stringify(data));copy.version=2;copy.moneyUnit='fils';return copy;}
 async function makeBackup(encrypted){
  const payload=backupPayload(),serialized=JSON.stringify(payload),createdAt=new Date().toISOString();
- if(!crypto||!crypto.subtle)throw new Error('التشفير والتحقق الآمن غير متاحين في هذا المتصفح.');
- if(!encrypted){const envelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt,checksum:await sha256Hex(serialized),payload};return JSON.stringify(envelope,null,2);}
+ if(typeof crypto==='undefined'||!crypto.subtle)throw new Error('التشفير والتحقق الآمن غير متاحين في هذا المتصفح.');
+ if(!encrypted){const envelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt,checksum:await sha256Hex(serialized),payload},output=JSON.stringify(envelope,null,2);if(toBytes(output).length>MAX_BACKUP_BYTES)throw new Error('حجم النسخة الناتجة يتجاوز الحد المسموح (20 ميغابايت).');return output;}
  const password=prompt('أنشئ كلمة مرور قوية لتشفير النسخة. لن تُحفظ كلمة المرور داخل التطبيق.');if(password===null)return null;if(password.length<10)throw new Error('كلمة المرور يجب ألا تقل عن 10 أحرف.');
  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(serialized));
- return JSON.stringify({format:BACKUP_FORMAT, schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher)),createdAt},null,2);
+ const output=JSON.stringify({format:BACKUP_FORMAT, schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher)),createdAt},null,2);if(toBytes(output).length>MAX_BACKUP_BYTES)throw new Error('حجم النسخة الناتجة يتجاوز الحد المسموح (20 ميغابايت).');return output;
 }
 function validateDebtRelations(candidate){
  const errors=[],walletIds=new Set(candidate.wallets.map(w=>w.id)),txById=new Map(candidate.transactions.map(t=>[t.id,t])),debtById=new Map(candidate.debts.map(d=>[d.id,d]));
@@ -699,8 +699,9 @@ function validateDebtRelations(candidate){
  candidate.debts.forEach(d=>{if(d&&d.amount!==undefined&&d.amount!==null)amount(d.amount,'الذمة '+d.id);if(d&&d.date!==undefined&&d.date!==null&&d.date!==''&&!validDate(d.date))throw new Error('تاريخ الذمة غير صالح: '+d.id);if(d&&d.due!==undefined&&d.due!==null&&d.due!==''&&!validDate(d.due))throw new Error('تاريخ استحقاق الذمة غير صالح: '+d.id);});candidate.payments.forEach(p=>{if(p&&p.amount!==undefined&&p.amount!==null)amount(p.amount,'التسوية '+p.id);if(p&&p.date!==undefined&&p.date!==null&&p.date!==''&&!validDate(p.date))throw new Error('تاريخ التسوية غير صالح: '+p.id);});
 }
 async function parseBackupFile(file){
+ if(!file||!Number.isFinite(file.size)||file.size<0)throw new Error('ملف النسخة غير صالح.');
  if(file.size>MAX_BACKUP_BYTES)throw new Error('حجم الملف يتجاوز الحد المسموح (20 ميغابايت).');
- let obj=JSON.parse(await file.text());
+ let obj;try{obj=JSON.parse(await file.text());}catch(e){throw new Error('ملف النسخة ليس JSON صالحًا أو تعرض للتلف.');}
  if(obj&&obj.format===BACKUP_FORMAT&&obj.encrypted){
   if(obj.schemaVersion!==BACKUP_SCHEMA)throw new Error('إصدار بنية النسخة المشفرة غير مدعوم.');
   if(obj.algorithm!=='AES-256-GCM'||obj.kdf!=='PBKDF2-SHA-256'||obj.iterations!==250000)throw new Error('إعدادات تشفير النسخة غير مدعومة أو غير آمنة.');
@@ -803,6 +804,18 @@ async function runBackupSelfTests(){
   window.prompt=()=>'Incorrect-Password!';
   let wrongPasswordRejected=false;try{await parseBackupFile(fileFor(encryptedEnvelope));}catch(e){wrongPasswordRejected=String(e.message).includes('تعذر فك التشفير');}
   check('رفض كلمة المرور الخاطئة',wrongPasswordRejected,'لا تُعاد أي بيانات عند فشل AES-GCM');
+  const tamperedCipher={...encryptedEnvelope,ciphertext:bytesToB64(Uint8Array.from([...b64ToBytes(encryptedEnvelope.ciphertext)].map((v,i)=>i===0?v^1:v)))};
+  let tamperedCipherRejected=false;try{await parseBackupFile(fileFor(tamperedCipher));}catch(e){tamperedCipherRejected=String(e.message).includes('تعذر فك التشفير');}
+  check('رفض تعديل النص المشفر أو وسم المصادقة',tamperedCipherRejected,'يجب أن يكشف AES-GCM أي تعديل في ciphertext أو authentication tag');
+  const tamperedIv={...encryptedEnvelope,iv:bytesToB64(Uint8Array.from([...iv].map((v,i)=>i===0?v^1:v)))};
+  let tamperedIvRejected=false;try{await parseBackupFile(fileFor(tamperedIv));}catch(e){tamperedIvRejected=String(e.message).includes('تعذر فك التشفير');}
+  check('رفض IV معدل مع بقاء الطول صحيحًا',tamperedIvRejected,'تعديل IV يجب أن يفشل المصادقة');
+  const tamperedSalt={...encryptedEnvelope,salt:bytesToB64(Uint8Array.from([...salt].map((v,i)=>i===0?v^1:v)))};
+  let tamperedSaltRejected=false;try{await parseBackupFile(fileFor(tamperedSalt));}catch(e){tamperedSaltRejected=String(e.message).includes('تعذر فك التشفير');}
+  check('رفض salt معدل مع بقاء الطول صحيحًا',tamperedSaltRejected,'تغيير الملح ينتج مفتاحًا مختلفًا ويفشل فك التشفير');
+  const malformedBase64={...encryptedEnvelope,ciphertext:'%%%='};
+  let malformedBase64Rejected=false;try{await parseBackupFile(fileFor(malformedBase64));}catch(e){malformedBase64Rejected=String(e.message).includes('بيانات التشفير في النسخة غير صالحة');}
+  check('رفض Base64 مشوه قبل طلب كلمة المرور',malformedBase64Rejected,'لا يقبل الترميز غير القانوني أو المحارف غير المسموحة');
   const orphanCreation=basePayload();orphanCreation.wallets=[{id:'orphan-wallet',name:'محفظة',opening:10000}];orphanCreation.transactions=[{id:'orphan-debt-create',type:'debt_out',debtId:'missing-debt',amount:1000,walletId:'orphan-wallet',date:'2026-01-01'}];
   check('رفض حركة إنشاء ذمة يتيمة',!validateDebtRelations(orphanCreation).valid,'لا تُقبل حركة قرض أو اقتراض دون سجل ذمة مطابق');
   const rel=basePayload();rel.wallets=[{id:'rel-wallet',name:'اختبار',opening:5000}];rel.debts=[{id:'rel-debt',type:'receivable',person:'اختبار',amount:1000,date:'2026-01-01',walletId:'rel-wallet',transactionId:'rel-create'}];rel.transactions=[{id:'rel-create',type:'debt_out',debtId:'rel-debt',amount:1000,walletId:'rel-wallet',date:'2026-01-01'},{id:'rel-pay-tx',type:'debt_collection',debtGroupKey:debtGroupKey(rel.debts[0]),amount:250,walletId:'rel-wallet',date:'2026-01-02'}];rel.payments=[{id:'rel-pay',groupKey:debtGroupKey(rel.debts[0]),type:'receivable',amount:250,walletId:'rel-wallet',date:'2026-01-02',transactionId:'rel-pay-tx'}];
