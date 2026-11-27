@@ -487,6 +487,22 @@ function runLedgerSelfTests(){
   const savedCancelDate=data.transfers[0].cancelledDate;data.transfers[0].cancelledDate='2026-04-01';const earlierCancelRejected=!validateJournalEntries(getJournalEntries()).valid;data.transfers[0].cancelledDate=savedCancelDate;
   check('رفض تاريخ إلغاء يسبق تاريخ التحويل',earlierCancelRejected,'لا يجوز أن يسبق القيد العكسي الحركة الأصلية');
   check('رفض إلغاء التحويل إذا كان عكسه سيجعل المستقبلة سالبة',(()=>{data.transactions=[{id:'target-spend',type:'expense',amount:20000,walletId:'transfer-target',accountId:'',date:'2026-04-04'}];return !walletTimelineValid('transfer-target');})(),'الرصيد 5000 قبل رد التحويل البالغ 15000');
+  // تحويلات متتابعة في اليوم نفسه مع إلغاء آخر حلقة من السلسلة.
+  const chainAudit={id:'chain-audit',date:'2026-06-01T12:00:00.000Z',dateLocal:'2026-06-01',action:'إلغاء تحويل بين المحافظ بقيد عكسي',recordType:'transfer',recordId:'chain-tr3',reason:'اختبار سلسلة تحويلات'};
+  data={version:2,moneyUnit:'fils',wallets:[{id:'chain-a',name:'أ',opening:100000,created:'2026-06-01'},{id:'chain-b',name:'ب',opening:0,created:'2026-06-01'},{id:'chain-c',name:'ج',opening:0,created:'2026-06-01'},{id:'chain-d',name:'د',opening:0,created:'2026-06-01'}],accounts:[],debts:[],transactions:[],transfers:[
+   {id:'chain-tr1',from:'chain-a',to:'chain-b',amount:30000,date:'2026-06-01',createdAt:'2026-06-01T09:00:00.000Z'},
+   {id:'chain-tr2',from:'chain-b',to:'chain-c',amount:20000,date:'2026-06-01',createdAt:'2026-06-01T10:00:00.000Z'},
+   {id:'chain-tr3',from:'chain-c',to:'chain-d',amount:10000,date:'2026-06-01',createdAt:'2026-06-01T11:00:00.000Z',status:'cancelled',cancelledAt:chainAudit.date,cancelledDate:chainAudit.dateLocal,cancelledBy:'local_owner',cancelReason:chainAudit.reason}
+  ],payments:[],audit:[chainAudit]};
+  const chainReport=getWalletMovementReport('2026-06-01','2026-06-01'),chainJournal=getJournalEntries(),chainValidation=validateJournalEntries(chainJournal),chainBalances=getLedgerBalances(chainJournal);
+  const chainExpected={'chain-a':70000,'chain-b':10000,'chain-c':20000,'chain-d':0};
+  check('صحة أرصدة سلسلة التحويلات المتتابعة في اليوم نفسه',Object.entries(chainExpected).every(([id,value])=>chainReport.find(w=>w.id===id)?.closing===value&&balance(id)===value),'المتوقع أ 70000، ب 10000، ج 20000، د صفر فلس');
+  check('تطابق تقرير السلسلة مع الأستاذ لكل محفظة',Object.entries(chainExpected).every(([id,value])=>chainBalances.find(a=>a.id==='wallet:'+id)?.balanceMinor===value),'كل رصيد في التقرير يطابق رصيد الأستاذ');
+  check('توازن قيود السلسلة وقيد عكس الحلقة الأخيرة',chainValidation.valid&&chainJournal.some(e=>e.id==='transfer-reversal:chain-tr3')&&getBalanceSummary('2026-06-01').balanced,'ثلاثة تحويلات وقيد عكسي متوازنة');
+  check('تسلسل الحركات في المحافظ الأربع لا ينتج رصيدًا سالبًا',data.wallets.every(w=>walletTimelineValid(w.id)),'تسلسل زمني صحيح مع القيد العكسي');
+  // إلغاء الحلقة الأولى بعد إنفاق جزء من المبلغ بتحويل لاحق يجب أن يُرفض.
+  data.transfers[0]={...data.transfers[0],status:'cancelled',cancelledAt:'2026-06-01T12:30:00.000Z',cancelledDate:'2026-06-01',cancelReason:'اختبار رفض إلغاء الحلقة الأولى'};
+  check('رفض إلغاء تحويل سابق استُهلك مبلغه في تحويل لاحق',!walletTimelineValid('chain-b'),'المحفظة ب لا تملك 30000 فلس لإرجاع التحويل الأول');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
