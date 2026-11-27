@@ -73,7 +73,7 @@ function validateLoadedDataShape(candidate){
  for(const key of collections){if(!Array.isArray(candidate[key]))throw new Error('مجموعة البيانات المحلية غير صالحة: '+key);const ids=new Set();for(const row of candidate[key]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل محلي غير صالح ضمن '+key);if(ids.has(row.id))throw new Error('معرّف محلي مكرر ضمن '+key+': '+row.id);ids.add(row.id);}}
  if(!candidate.settings||typeof candidate.settings!=='object'||Array.isArray(candidate.settings))throw new Error('إعدادات البيانات المحلية غير صالحة.');
 }
-let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null,dataLoadBlocked=false,dataLoadError='',recoveryImportInProgress=false;
+let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null,dataLoadBlocked=false,dataLoadError='',recoveryImportInProgress=false,moneyMigrationCommitInProgress=false;
 try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2){data={...fresh(),...p};validateLoadedDataShape(data);moneyMigrationUnit=Object.prototype.hasOwnProperty.call(p,'moneyUnit')?p.moneyUnit:null;if(moneyMigrationUnit===null)data.moneyUnit='JOD';moneyMigrationPending=moneyMigrationUnit!=='fils';}else{dataLoadBlocked=true;dataLoadError='إصدار البيانات المحلية غير معروف؛ أوقفنا فتح التطبيق حتى لا تُستبدل بياناتك.';}}}catch(e){dataLoadBlocked=true;dataLoadError='تعذرت قراءة بنية البيانات المحلية أو التحقق منها. لم نفتح سجلًا جديدًا ولم نكتب فوق البيانات. لا تحذف بيانات الموقع؛ نزّل الملف الأصلي إن أمكن أو استعد نسخة احتياطية. '+String(e&&e.message||e);}
 let committedDataSnapshot=JSON.parse(JSON.stringify(data));
 let lastEventTimestamp=0;
@@ -94,7 +94,7 @@ function ensureMoneyInFils(target){
 // إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
 // لا تُنفّذ معالجة تلقائية لسجلات التسويات القديمة؛ تبقى بيانات المستخدم كما هي حتى اعتماد أداة إصلاح صريحة.
 ;
-function assertStorageWritable(){if(dataLoadBlocked&&!recoveryImportInProgress)throw new Error('الكتابة متوقفة لأن قراءة البيانات المحلية لم تنجح أو لأن إصدارها غير معروف. أُبقيت البيانات الأصلية دون تعديل.');if(moneyMigrationPending&&!recoveryImportInProgress)throw new Error('الكتابة متوقفة حتى الموافقة على تحويل وحدة المبالغ وحفظ النسخة الأصلية.');}
+function assertStorageWritable(){if(dataLoadBlocked&&!recoveryImportInProgress)throw new Error('الكتابة متوقفة لأن قراءة البيانات المحلية لم تنجح أو لأن إصدارها غير معروف. أُبقيت البيانات الأصلية دون تعديل.');if(moneyMigrationPending&&!recoveryImportInProgress&&!moneyMigrationCommitInProgress)throw new Error('الكتابة متوقفة حتى الموافقة على تحويل وحدة المبالغ وحفظ النسخة الأصلية.');}
 function save(){assertStorageWritable();const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
 function restoreCommittedData(){data=JSON.parse(JSON.stringify(committedDataSnapshot));dirty=false;}
 function changed(action,details){
@@ -808,7 +808,7 @@ async function runBackupSelfTests(){
  const original=data,originalDirty=dirty,originalCommitted=committedDataSnapshot,oldPrompt=window.prompt,results=[];
  const check=(name,passed,detail='')=>results.push({name,passed:!!passed,detail});
  let shapeAccepted=false,shapeRejected=false;try{validateLoadedDataShape(fresh());shapeAccepted=true;}catch(e){}try{validateLoadedDataShape({...fresh(),wallets:null});}catch(e){shapeRejected=true;}check('التحقق من بنية البيانات عند بدء التشغيل',shapeAccepted&&shapeRejected,'تُقبل البنية المكتملة وتُحجب البيانات ذات المجموعة المفقودة أو غير الصالحة');
- const priorBlocked=dataLoadBlocked,priorMigration=moneyMigrationPending,priorRecovery=recoveryImportInProgress;let blockedWriteRejected=false,migrationWriteRejected=false,recoveryWriteAllowed=false;try{dataLoadBlocked=true;try{assertStorageWritable();}catch(e){blockedWriteRejected=String(e&&e.message||e).includes('الكتابة متوقفة');}dataLoadBlocked=false;moneyMigrationPending=true;try{assertStorageWritable();}catch(e){migrationWriteRejected=String(e&&e.message||e).includes('الموافقة على تحويل وحدة المبالغ');}moneyMigrationPending=false;dataLoadBlocked=true;recoveryImportInProgress=true;try{assertStorageWritable();recoveryWriteAllowed=true;}catch(e){}}finally{dataLoadBlocked=priorBlocked;moneyMigrationPending=priorMigration;recoveryImportInProgress=priorRecovery;}check('منع الكتابة عند تعذر تحميل البيانات',blockedWriteRejected,'طبقة الحفظ ترفض أي كتابة عندما تكون بوابة حماية البيانات مفعّلة');check('منع الحفظ المباشر قبل اعتماد ترحيل العملة',migrationWriteRejected,'الحاجز المركزي يحمي أيضًا عمليات الإلغاء والتحويل التي تستدعي save مباشرة');check('السماح المحدود باستعادة نسخة سليمة من وضع الحماية',recoveryWriteAllowed,'لا يُفتح الحفظ إلا أثناء مسار استعادة صريح بعد اجتياز فحوص ملف النسخة');
+ const priorBlocked=dataLoadBlocked,priorMigration=moneyMigrationPending,priorRecovery=recoveryImportInProgress,priorMigrationCommit=moneyMigrationCommitInProgress;let blockedWriteRejected=false,migrationWriteRejected=false,recoveryWriteAllowed=false,migrationCommitAllowed=false,migrationCommitStillBlockedOnCorruptData=false;try{dataLoadBlocked=true;try{assertStorageWritable();}catch(e){blockedWriteRejected=String(e&&e.message||e).includes('الكتابة متوقفة');}dataLoadBlocked=false;moneyMigrationPending=true;try{assertStorageWritable();}catch(e){migrationWriteRejected=String(e&&e.message||e).includes('الموافقة على تحويل وحدة المبالغ');}moneyMigrationCommitInProgress=true;try{assertStorageWritable();migrationCommitAllowed=true;}catch(e){}dataLoadBlocked=true;try{assertStorageWritable();}catch(e){migrationCommitStillBlockedOnCorruptData=String(e&&e.message||e).includes('الكتابة متوقفة');}moneyMigrationCommitInProgress=false;dataLoadBlocked=true;recoveryImportInProgress=true;try{assertStorageWritable();recoveryWriteAllowed=true;}catch(e){}}finally{dataLoadBlocked=priorBlocked;moneyMigrationPending=priorMigration;recoveryImportInProgress=priorRecovery;moneyMigrationCommitInProgress=priorMigrationCommit;}check('منع الكتابة عند تعذر تحميل البيانات',blockedWriteRejected,'طبقة الحفظ ترفض أي كتابة عندما تكون بوابة حماية البيانات مفعّلة');check('منع الحفظ المباشر قبل اعتماد ترحيل العملة',migrationWriteRejected,'الحاجز المركزي يحمي أيضًا عمليات الإلغاء والتحويل التي تستدعي save مباشرة');check('السماح المحدود بحفظ ترحيل العملة المعتمد',migrationCommitAllowed,'يُسمح بالحفظ فقط داخل نافذة تنفيذ الترحيل الصريحة والمؤقتة');check('بقاء حظر البيانات التالفة أثناء نافذة ترحيل العملة',migrationCommitStillBlockedOnCorruptData,'استثناء الترحيل لا يتجاوز حاجز البيانات التالفة أو مجهولة الإصدار');check('السماح المحدود باستعادة نسخة سليمة من وضع الحماية',recoveryWriteAllowed,'لا يُفتح الحفظ إلا أثناء مسار استعادة صريح بعد اجتياز فحوص ملف النسخة');
  const migrationOriginalData=data,migrationOriginalSnapshot=committedDataSnapshot,migrationOriginalDirty=dirty;let migrationRollbackPassed=false;try{const prior={...fresh(),wallets:[{id:'migration-before',name:'قبل',opening:2300}]},raw=JSON.stringify(prior),fake={value:'',setItem(k,v){this.value=v;},getItem(){return this.value;}};data={...fresh(),wallets:[{id:'migration-after',name:'بعد',opening:2300000}]};committedDataSnapshot=JSON.parse(JSON.stringify(data));dirty=true;rollbackMoneyMigration(prior,raw,fake);migrationRollbackPassed=data.wallets[0].id==='migration-before'&&committedDataSnapshot.wallets[0].id==='migration-before'&&fake.value===raw&&dirty===false;}catch(e){}finally{data=migrationOriginalData;committedDataSnapshot=migrationOriginalSnapshot;dirty=migrationOriginalDirty;}check('استعادة لقطة البيانات عند فشل ترحيل وحدة المبالغ',migrationRollbackPassed,'يعاد الملف والذاكرة ولقطة الحالة المعتمدة إلى ما قبل التحويل');
  const snapshotFixture={...fresh(),wallets:[{id:'committed-wallet',name:'محفوظة',opening:1250}]};committedDataSnapshot=snapshotFixture;data={...fresh(),wallets:[{id:'uncommitted-wallet',name:'غير محفوظة',opening:999}]};dirty=true;let committedRestore=false;try{restoreCommittedData();committedRestore=data.wallets.length===1&&data.wallets[0].id==='committed-wallet'&&dirty===false;}catch(e){}check('استعادة آخر حالة معتمدة عند تعذر قراءة التخزين',committedRestore,'لا تبقى طفرة الذاكرة غير المحفوظة بعد فشل قراءة localStorage');
  const fileFor=obj=>{const text=JSON.stringify(obj);return {size:new TextEncoder().encode(text).length,text:async()=>text};};
@@ -1166,7 +1166,7 @@ function downloadOriginalMoneyData(){
  try{const raw=localStorage.getItem(KEY);if(!raw)throw new Error('لا توجد بيانات محفوظة لتنزيلها.');const blob=new Blob([raw],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-قبل-تحويل-وحدة-المبالغ-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  catch(err){const m=document.getElementById('moneyMigrationMessage');if(m)m.textContent='تعذر تنزيل البيانات الأصلية: '+String(err&&err.message||err);}
 }
-function rollbackMoneyMigration(previous,priorRaw,storage=localStorage){data=previous;storage.setItem(KEY,priorRaw);committedDataSnapshot=JSON.parse(priorRaw);dirty=false;return true;}
+function rollbackMoneyMigration(previous,priorRaw,storage=localStorage){data=previous;committedDataSnapshot=JSON.parse(JSON.stringify(previous));dirty=false;storage.setItem(KEY,priorRaw);return true;}
 function approveMoneyMigration(){
  const msg=document.getElementById('moneyMigrationMessage');
  if(dataLoadBlocked){if(msg)msg.textContent='تعذر التحقق من بنية البيانات؛ لا يمكن إجراء تحويل آلي.';return;}
@@ -1179,15 +1179,17 @@ function approveMoneyMigration(){
   localStorage.setItem(snapshotKey,priorRaw);
   if(localStorage.getItem(snapshotKey)!==priorRaw)throw new Error('تعذر التحقق من حفظ النسخة الأصلية.');
   previous=JSON.parse(JSON.stringify(data));
-  try{ensureMoneyInFils(data);save();renderAll();}
+  moneyMigrationCommitInProgress=true;
+  try{ensureMoneyInFils(data);save();}
   catch(err){
-   try{rollbackMoneyMigration(previous,priorRaw);renderAll();}
-   catch(restoreErr){throw new Error('فشل التحويل أو العرض وتعذر إرجاع البيانات والتخزين إلى الحالة الأصلية. احتفظ بالنسخة التي نزلتها. '+String(restoreErr&&restoreErr.message||restoreErr));}
+   try{rollbackMoneyMigration(previous,priorRaw);}
+   catch(restoreErr){throw new Error('فشل التحويل وتعذر إرجاع التخزين إلى الحالة الأصلية. احتفظ بنسخة ما قبل التحويل من صفحة النسخ الاحتياطي. '+String(restoreErr&&restoreErr.message||restoreErr));}
    throw err;
-  }
+  }finally{moneyMigrationCommitInProgress=false;}
   moneyMigrationPending=false;
   const gate=document.getElementById('moneyMigrationGate');if(gate)gate.remove();
   document.querySelector('.wrap').style.display='';
+  try{renderAll();}catch(renderError){alert('تم حفظ تحويل وحدة المبالغ بنجاح، لكن تعذر تحديث العرض. أعد تحميل صفحة التطبيق للتحقق من النتيجة. '+String(renderError&&renderError.message||renderError));return;}
   alert('تم التحويل بعد حفظ نسخة أصلية داخل المتصفح. احتفظ أيضًا بملف البيانات الأصلي خارج المتصفح.');
  }catch(err){if(msg)msg.textContent='لم يتم اعتماد التحويل: '+String(err&&err.message||err);}
 }
