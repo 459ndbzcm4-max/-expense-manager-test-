@@ -279,6 +279,16 @@ function runLedgerSelfTests(){
   check('رفض اختلاف حالة إلغاء التسوية عن حركتها النقدية',!validateDebtRelations(relationCandidate).valid,'يجب إلغاء مستند payment وحركته معًا');
   relationCandidate.transactions.find(t=>t.id==='relation-settlement').status='cancelled';
   check('قبول إلغاء التسوية عند تطابق حالتي المستند والحركة',validateDebtRelations(relationCandidate).valid,'المستند والحركة ملغيان معًا ولا يُحتسب المبلغ كمسدد');
+  const normalizedKey=debtGroupKey({type:'receivable',person:'سامي'});
+  const normalizedCandidate={wallets:[{id:'normalized-wallet'}],debts:[
+   {id:'normalized-cancelled',type:'receivable',person:'سامي',amount:2000,walletId:'normalized-wallet',transactionId:'normalized-create-cancelled',date:'2026-06-01',status:'cancelled'},
+   {id:'normalized-active',type:'receivable',person:' سامي ',amount:4000,walletId:'normalized-wallet',transactionId:'normalized-create-active',date:'2026-06-02'}
+  ],transactions:[
+   {id:'normalized-create-cancelled',type:'debt_out',amount:2000,walletId:'normalized-wallet',debtId:'normalized-cancelled',date:'2026-06-01',status:'cancelled'},
+   {id:'normalized-create-active',type:'debt_out',amount:4000,walletId:'normalized-wallet',debtId:'normalized-active',date:'2026-06-02'},
+   {id:'normalized-settlement',type:'debt_collection',amount:1000,walletId:'normalized-wallet',debtGroupKey:normalizedKey,date:'2026-06-03'}
+  ],payments:[{id:'normalized-payment',groupKey:normalizedKey,type:'receivable',person:' سامي ',amount:1000,date:'2026-06-03',walletId:'normalized-wallet',transactionId:'normalized-settlement'}]};
+  check('قبول تسوية عند اختلاف حالة الأحرف والمسافات في اسم ذمة ملغاة',validateDebtRelations(normalizedCandidate).valid,'مطابقة المجموعة تعتمد مفتاح الذمة الموحد لا أول اسم حرفي في السجلات');
   // لا يجوز إلغاء إيراد إذا كان سيجعل رصيد المحفظة سالبًا قبل المصروفات اللاحقة.
   data={version:2,moneyUnit:'fils',wallets:[{id:'income-cancel-wallet',name:'محفظة اختبار إلغاء الإيراد',opening:2000}],accounts:[{id:'income-cancel-account',name:'إيراد',type:'income'},{id:'income-cancel-expense',name:'مصروف',type:'expense'}],debts:[],transactions:[
    {id:'income-to-cancel',type:'income',amount:5000,walletId:'income-cancel-wallet',accountId:'income-cancel-account',date:'2026-06-01',createdAt:'2026-06-01T09:00:00Z'},
@@ -470,7 +480,7 @@ function validateDebtRelations(candidate){
   if(!p.groupKey||!debtKeys.has(p.groupKey))errors.push('مجموعة الذمم المرتبطة بالتسوية غير موجودة: '+p.id);
   const related=candidate.debts.find(d=>debtGroupKey(d)===p.groupKey);
   if(!related)errors.push('تعذر تحديد مجموعة الذمم للتسوية: '+p.id);
-  else if(p.type!==related.type||p.person!==related.person)errors.push('بيانات صاحب/نوع التسوية لا تطابق مجموعة الذمم: '+p.id);
+  else if(p.type!==related.type||debtGroupKey({type:p.type,person:p.person})!==p.groupKey)errors.push('بيانات صاحب/نوع التسوية لا تطابق مجموعة الذمم: '+p.id);
   if(!p.transactionId||paymentTxIds.has(p.transactionId))errors.push('مرجع حركة التسوية مفقود أو مكرر: '+p.id);
   paymentTxIds.add(p.transactionId);
   const t=txById.get(p.transactionId),expected=p.type==='receivable'?'debt_collection':'debt_repayment';
