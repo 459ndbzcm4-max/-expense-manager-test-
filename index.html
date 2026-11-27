@@ -882,7 +882,8 @@ async function runBackupSelfTests(){
   const priorTestData={wallets:[{id:'prior'}]},activeTestData={wallets:[{id:'incoming'}]},store1=testStorage();data=activeTestData;dirty=true;let redrawMerge=false,mergeRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',null,store1,()=>{redrawMerge=true;});mergeRollbackOk=data===priorTestData&&!dirty&&store1.getItem(KEY)==='prior-raw'&&redrawMerge;}catch(e){}check('إرجاع حالة الدمج السابقة وإعادة رسمها بعد الفشل',mergeRollbackOk,'تُستعاد الذاكرة والتخزين والواجهة قبل إظهار الخطأ');
   const store2=testStorage();data=activeTestData;dirty=true;let restoreRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store2,()=>{});restoreRollbackOk=data===priorTestData&&!dirty&&store2.getItem(KEY)==='prior-raw'&&!store2.values.has(KEY+'.rollback.test');}catch(e){}check('تنظيف نقطة رجوع الاستعادة وإرجاع التخزين السابق',restoreRollbackOk,'تُزال نقطة الرجوع المؤقتة ويعود السجل الأصلي');
   const store3=testStorage();data=activeTestData;dirty=true;let renderFailureReported=false;try{rollbackImportedState(priorTestData,true,'prior-raw',null,store3,()=>{throw new Error('render test');});}catch(e){renderFailureReported=String(e.message).includes('أُعيدت البيانات والتخزين السابقان');}check('كشف فشل إعادة عرض الواجهة بعد استرجاع البيانات',renderFailureReported&&data===priorTestData&&dirty===true&&store3.getItem(KEY)==='prior-raw','تُذكر للمستخدم ضرورة إعادة تحميل التطبيق دون إخفاء أن التخزين استُعيد');
-   const store4=failingStore();data=activeTestData;dirty=true;let rescuePointRetained=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store4,()=>{});}catch(e){rescuePointRetained=String(e.message).includes('لم تُحذف نقطة الرجوع المحلية')&&store4.getItem(KEY+'.rollback.test')==='prior-raw'&&!store4.values.has(KEY);}check('الإبقاء على نقطة الإنقاذ إذا فشلت إعادة كتابة البيانات السابقة',rescuePointRetained,'لا تُحذف النسخة المؤقتة عند فشل استعادة التخزين حتى يمكن تنزيلها وإنقاذها');
+   const store4=failingStore();data=activeTestData;dirty=true;let rescuePointRetained=false;try{rollbackImportedState(priorTestData,false,'prior-raw',KEY+'.rollback.test',store4,()=>{});}catch(e){rescuePointRetained=String(e.message).includes('لم تُحذف نقطة الرجوع المحلية')&&store4.getItem(KEY+'.rollback.test')==='prior-raw'&&store4.getItem(KEY)==='incoming-raw';}check('الإبقاء على نقطة الإنقاذ وعدم حذف البيانات الحالية عند فشل الإرجاع',rescuePointRetained,'لا يُحذف مفتاح البيانات إذا فشلت إعادة كتابة الحالة السابقة، وتبقى نقطة الإنقاذ محفوظة');
+  const preflightStore={values:new Map([[KEY,'original-raw']]),getItem(k){return this.values.has(k)?this.values.get(k):null;},setItem(k,v){if(k===KEY+'.rollback.test')throw new Error('quota exceeded');this.values.set(k,String(v));},removeItem(k){this.values.delete(k);}};let preflightSafe=false;try{persistRollbackSnapshot('original-raw',priorTestData,preflightStore,KEY+'.rollback.test');}catch(e){preflightSafe=preflightStore.getItem(KEY)==='original-raw'&&!preflightStore.values.has(KEY+'.rollback.test');}check('عدم لمس البيانات الأصلية عند فشل تجهيز نقطة الرجوع',preflightSafe,'فشل كتابة نقطة الرجوع يوقف الاستعادة قبل تغيير مفتاح البيانات الأصلي');
    const store5=testStorage();store5.values.set(KEY,'incoming-raw');const emptyPrior={wallets:[{id:'unsaved-before-import'}]};store5.values.set(KEY+'.rollback.test',JSON.stringify(emptyPrior));data=activeTestData;dirty=true;let missingPriorRawRecovered=false;try{rollbackImportedState(emptyPrior,true,null,KEY+'.rollback.test',store5,()=>{});missingPriorRawRecovered=JSON.parse(store5.getItem(KEY)).wallets[0].id==='unsaved-before-import'&&!store5.values.has(KEY+'.rollback.test');}catch(e){}check('حفظ حالة الذاكرة السابقة عند غياب سجل التخزين الرئيسي',missingPriorRawRecovered,'عند عدم وجود priorRaw تُحفظ نسخة من البيانات السابقة قبل تنظيف نقطة الرجوع');
   const encryptedPayload=basePayload(),encryptedText=JSON.stringify(encryptedPayload),salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),password='Backup-Test-2026!';
   const key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(encryptedText));
@@ -1045,14 +1046,20 @@ $('exportJson').addEventListener('click',async()=>{try{const content=await makeB
 $('exportEncrypted').addEventListener('click',async()=>{try{const content=await makeBackup(true);if(content)download('مدير-المصاريف-مشفرة-'+today()+'.json',content,'application/json;charset=utf-8');$('backupStatus').textContent='تم إنشاء النسخة المشفرة محليًا.';}catch(err){alert(err.message);}});
 let importMode='replace',mergePickerRequested=false;const ROLLBACK_KEY=KEY+'.rollback.latest';
 function consumeImportPickerClick(){if(mergePickerRequested){mergePickerRequested=false;return;}importMode='replace';}
+function persistRollbackSnapshot(priorRaw,priorData,storage=localStorage,rollbackKey=ROLLBACK_KEY){
+ const raw=priorRaw===null?JSON.stringify(priorData):priorRaw;
+ storage.setItem(rollbackKey,raw);
+ const verified=storage.getItem(rollbackKey);
+ if(verified!==raw)throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية؛ لم يبدأ استبدال البيانات.');
+ return raw;
+}
 function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage=localStorage,redraw=renderAll){
  data=priorData;dirty=priorDirty;const restoreRaw=priorRaw===null?JSON.stringify(priorData):priorRaw;
  try{
   storage.setItem(KEY,restoreRaw);
   committedDataSnapshot=JSON.parse(restoreRaw);
- }catch(firstRestoreError){
-  try{storage.removeItem(KEY);storage.setItem(KEY,restoreRaw);committedDataSnapshot=JSON.parse(restoreRaw);}
-  catch(restoreError){throw new Error('تعذر إرجاع التخزين السابق. لم تُحذف نقطة الرجوع المحلية؛ نزّلها من صفحة النسخ الاحتياطي واحتفظ بها قبل أي محاولة أخرى. السبب: '+String(restoreError&&restoreError.message||restoreError));}
+ }catch(restoreError){
+  throw new Error('تعذر إرجاع التخزين السابق. لم تُحذف نقطة الرجوع المحلية؛ نزّلها من صفحة النسخ الاحتياطي واحتفظ بها قبل أي محاولة أخرى. السبب: '+String(restoreError&&restoreError.message||restoreError));
  }
  if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
  try{redraw();}
@@ -1095,17 +1102,22 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
   if(!confirm(summary+'\\n\\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
   const rollbackKey=ROLLBACK_KEY;
+  let importStarted=false;
   try{
-   localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));
-   if(localStorage.getItem(rollbackKey)!==(priorRaw||JSON.stringify(priorData)))throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية.');
+   persistRollbackSnapshot(priorRaw,priorData,localStorage,rollbackKey);
    if(recoveryMode){recoveryImportInProgress=true;dataLoadBlocked=false;}
+   importStarted=true;
    data=candidate;save();renderAll();
    if(recoveryMode){recoveryImportInProgress=false;dataLoadBlocked=false;moneyMigrationPending=false;const gate=document.getElementById('moneyMigrationGate');if(gate)gate.remove();document.querySelector('.wrap').style.display='';}
    $('backupStatus').textContent=recoveryMode?'تم إنقاذ البيانات من النسخة الاحتياطية بعد التحقق. احتُفظ بنسخة من البيانات السابقة في نقطة الرجوع المحلية.':'تمت الاستعادة بعد التحقق. حُفظت نقطة الرجوع المحلية السابقة؛ نزّلها إلى «الملفات» قبل استعادة أخرى.';
   }
   catch(err){
-   try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}
-   catch(rollbackError){if(recoveryMode){dataLoadBlocked=true;recoveryImportInProgress=false;}throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}
+   if(importStarted){
+    try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}
+    catch(rollbackError){if(recoveryMode){dataLoadBlocked=true;recoveryImportInProgress=false;}throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}
+   }else{
+    data=priorData;dirty=priorDirty;
+   }
    if(recoveryMode){dataLoadBlocked=true;recoveryImportInProgress=false;}
    throw err;
   }
