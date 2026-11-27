@@ -480,8 +480,13 @@ function runLedgerSelfTests(){
   check('الأستاذ يتضمن أصل التحويل وقيده العكسي المتوازنين',transferEntries.some(e=>e.id==='transfer:transfer-cancel-test')&&transferEntries.some(e=>e.id==='transfer-reversal:transfer-cancel-test')&&transferValidation.valid,'قيدان متعاكسان مع ميزان متوازن');
   check('الرصيد الحالي يستبعد صافي أثر التحويل الملغى',balance('transfer-source')===50000&&balance('transfer-target')===10000,'الرصيد الحالي يساوي ما قبل التحويل');
   check('سجل التدقيق يحتفظ بسبب وتاريخ إلغاء التحويل',data.audit.some(a=>a.recordId==='transfer-cancel-test'&&a.reason==='اختبار إلغاء تحويل'&&a.dateLocal==='2026-04-05'), 'تاريخ محلي وسبب مرتبطان بمعرّف التحويل');
-  check('رفض تاريخ إلغاء يسبق تاريخ التحويل',(()=>{data.transfers[0].cancelledDate='2026-04-01';return !validateJournalEntries(getJournalEntries()).valid;})(),'لا يجوز أن يسبق القيد العكسي الحركة الأصلية');
-  check('رفض إلغاء التحويل إذا كان عكسه سيجعل المستقبلة سالبة',(()=>{data.transfers[0].status='posted';data.transfers[0].cancelledAt='';data.transfers[0].cancelledDate='';data.transactions=[{id:'target-spend',type:'expense',amount:20000,walletId:'transfer-target',accountId:'',date:'2026-04-04'}];return !walletTimelineValid('transfer-target');})(),'الرصيد 5000 قبل رد التحويل البالغ 15000');
+  const ledgerBeforeTransferCancel=getBalanceSummary('2026-04-04'),ledgerAfterTransferCancel=getBalanceSummary('2026-04-05');
+  check('ميزان الأرصدة التاريخي قبل إلغاء التحويل',ledgerBeforeTransferCancel.balanced&&ledgerBeforeTransferCancel.accounts.find(a=>a.id==='wallet:transfer-source')?.balanceMinor===35000&&ledgerBeforeTransferCancel.accounts.find(a=>a.id==='wallet:transfer-target')?.balanceMinor===25000,'الأستاذ قبل الإلغاء يعكس أصل التحويل فقط');
+  check('ميزان الأرصدة التاريخي بعد إلغاء التحويل',ledgerAfterTransferCancel.balanced&&ledgerAfterTransferCancel.accounts.find(a=>a.id==='wallet:transfer-source')?.balanceMinor===50000&&ledgerAfterTransferCancel.accounts.find(a=>a.id==='wallet:transfer-target')?.balanceMinor===10000,'الأستاذ بعد الإلغاء يعكس القيد العكسي');
+  check('تسلسل المحفظتين صالح بعد تسجيل القيد العكسي',walletTimelineValid('transfer-source')&&walletTimelineValid('transfer-target'),'الأصل والعكس لا ينتجان رصيدًا سالبًا');
+  const savedCancelDate=data.transfers[0].cancelledDate;data.transfers[0].cancelledDate='2026-04-01';const earlierCancelRejected=!validateJournalEntries(getJournalEntries()).valid;data.transfers[0].cancelledDate=savedCancelDate;
+  check('رفض تاريخ إلغاء يسبق تاريخ التحويل',earlierCancelRejected,'لا يجوز أن يسبق القيد العكسي الحركة الأصلية');
+  check('رفض إلغاء التحويل إذا كان عكسه سيجعل المستقبلة سالبة',(()=>{data.transactions=[{id:'target-spend',type:'expense',amount:20000,walletId:'transfer-target',accountId:'',date:'2026-04-04'}];return !walletTimelineValid('transfer-target');})(),'الرصيد 5000 قبل رد التحويل البالغ 15000');
  }catch(err){check('تشغيل مجموعة الاختبارات',false,String(err&&err.message||err));}
  finally{data=original;}
  return results;
