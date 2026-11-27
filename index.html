@@ -831,8 +831,8 @@ function csvReport(){
  rows.push(['المحفظة','رصيد أول الفترة','المقبوضات','المدفوعات','رصيد آخر الفترة','تحويلات داخلة','تحويلات خارجة']);
  (c.walletMovement||[]).forEach(w=>rows.push([w.name,money(w.opening),money(w.incoming),money(w.outgoing),money(w.closing),money(w.transferIn),money(w.transferOut)]));
  section('التحويلات بين المحافظ — لا تُحتسب دخلًا أو مصروفًا');
- rows.push(['التاريخ','من محفظة','إلى محفظة','المبلغ','البيان','الحالة']);
- data.transfers.filter(t=>isFinancialActiveAt(t,c.to)&&(!c.from||t.date>=c.from)&&(!c.to||t.date<=c.to)&&(!c.walletId||t.from===c.walletId||t.to===c.walletId)).sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(t=>{const fw=data.wallets.find(w=>w.id===t.from),tw=data.wallets.find(w=>w.id===t.to);rows.push([dateDisplay(t.date),fw?fw.name:'',tw?tw.name:'',money(t.amount),t.note||'','معتمد']);});
+ rows.push(['معرّف التحويل','التاريخ','من محفظة','إلى محفظة','المبلغ','البيان','الحالة']);
+ data.transfers.filter(t=>isFinancialActiveAt(t,c.to)&&(!c.from||t.date>=c.from)&&(!c.to||t.date<=c.to)&&(!c.walletId||t.from===c.walletId||t.to===c.walletId)).sort((x,y)=>String(x.date).localeCompare(String(y.date))).forEach(t=>{const fw=data.wallets.find(w=>w.id===t.from),tw=data.wallets.find(w=>w.id===t.to);rows.push([t.id,dateDisplay(t.date),fw?fw.name:'',tw?tw.name:'',money(t.amount),t.note||'','معتمد']);});
  section('ملخص الذمم حسب نهاية الفترة');
  rows.push(['الشخص/الجهة','النوع','الأصل','المسدد','المتبقي']);
  (c.debtSnapshot||[]).forEach(g=>rows.push([g.person,g.type==='receivable'?'مدين: لنا':'دائن: علينا',money(g.original),money(g.paid),money(g.remaining)]));
