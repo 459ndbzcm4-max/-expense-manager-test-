@@ -70,6 +70,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const fresh=()=>({version:2,moneyUnit:'fils',settings:{digitStyle:'arab',currencyCode:'JOD',currencySymbol:'د.أ'},wallets:[],accounts:[],transactions:[],transfers:[],debts:[],payments:[],journalEntries:[],journalValidation:null,audit:[]});
 let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null,dataLoadBlocked=false,dataLoadError='';
 try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2){data={...fresh(),...p};moneyMigrationUnit=Object.prototype.hasOwnProperty.call(p,'moneyUnit')?p.moneyUnit:null;if(moneyMigrationUnit===null)data.moneyUnit='JOD';moneyMigrationPending=moneyMigrationUnit!=='fils';}else{dataLoadBlocked=true;dataLoadError='إصدار البيانات المحلية غير معروف؛ أوقفنا فتح التطبيق حتى لا تُستبدل بياناتك.';}}}catch(e){dataLoadBlocked=true;dataLoadError='تعذرت قراءة البيانات المحلية. لا تحذف بيانات الموقع ولا تبدأ سجلًا جديدًا؛ نزّل الملف الأصلي إن أمكن أو استعد نسخة احتياطية.';}
+let committedDataSnapshot=JSON.parse(JSON.stringify(data));
 let lastEventTimestamp=0;
 function nextEventTimestamp(){
  const existing=[...(data.transactions||[]),...(data.transfers||[])].reduce((max,x)=>{const n=Date.parse(x.createdAt||'');return Number.isFinite(n)?Math.max(max,n):max;},0);
@@ -88,15 +89,16 @@ function ensureMoneyInFils(target){
 // إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
 // لا تُنفّذ معالجة تلقائية لسجلات التسويات القديمة؛ تبقى بيانات المستخدم كما هي حتى اعتماد أداة إصلاح صريحة.
 ;
-function save(){const journal=getJournalEntries();data.journalEntries=journal;data.journalValidation=validateJournalEntries(journal);localStorage.setItem(KEY,JSON.stringify(data));dirty=false;}
+function save(){const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
+function restoreCommittedData(){data=JSON.parse(JSON.stringify(committedDataSnapshot));dirty=false;}
 function changed(action,details){
  let priorRaw;
- try{priorRaw=localStorage.getItem(KEY);}catch(err){alert('تعذر التحقق من حالة التخزين السابقة؛ لم يتم اعتماد العملية. '+String(err&&err.message||err));return false;}
+ try{priorRaw=localStorage.getItem(KEY);}catch(err){restoreCommittedData();alert('تعذر التحقق من حالة التخزين السابقة؛ أُلغيت العملية وأُعيدت آخر حالة محفوظة في الذاكرة. '+String(err&&err.message||err));return false;}
  data.audit.push({id:uid(),date:new Date().toISOString(),action,details:String(details||''),actor:'local_owner'});
  try{save();}
  catch(err){
-  try{data=priorRaw===null?fresh():JSON.parse(priorRaw);dirty=false;}
-  catch(restoreError){alert('تعذر حفظ العملية وتعذر استعادة الحالة السابقة في الذاكرة. لا تتابع إدخال البيانات قبل استعادة نسخة احتياطية.');return false;}
+  try{data=priorRaw===null?JSON.parse(JSON.stringify(committedDataSnapshot)):JSON.parse(priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(data));dirty=false;}
+  catch(restoreError){try{restoreCommittedData();}catch(snapshotError){alert('تعذر حفظ العملية واستعادة آخر حالة محفوظة. لا تتابع إدخال البيانات قبل استعادة نسخة احتياطية.');return false;}}
   alert('لم يتم حفظ العملية؛ أُعيدت البيانات إلى آخر حالة محفوظة. '+String(err&&err.message||err));return false;
  }
  try{renderAll();}catch(err){alert('حُفظت العملية بنجاح، لكن تعذر تحديث العرض. أعد تحميل صفحة التطبيق للتحقق من النتيجة. '+String(err&&err.message||err));}
@@ -916,8 +918,9 @@ function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage
  data=priorData;dirty=priorDirty;const restoreRaw=priorRaw===null?JSON.stringify(priorData):priorRaw;
  try{
   storage.setItem(KEY,restoreRaw);
+  committedDataSnapshot=JSON.parse(restoreRaw);
  }catch(firstRestoreError){
-  try{storage.removeItem(KEY);storage.setItem(KEY,restoreRaw);}
+  try{storage.removeItem(KEY);storage.setItem(KEY,restoreRaw);committedDataSnapshot=JSON.parse(restoreRaw);}
   catch(restoreError){throw new Error('تعذر إرجاع التخزين السابق. لم تُحذف نقطة الرجوع المحلية؛ نزّلها من صفحة النسخ الاحتياطي واحتفظ بها قبل أي محاولة أخرى. السبب: '+String(restoreError&&restoreError.message||restoreError));}
  }
  if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
