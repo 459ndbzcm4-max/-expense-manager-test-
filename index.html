@@ -148,8 +148,8 @@ function cancelFinancialTransaction(id,reason){
   data.audit.push({id:uid(),date:target.cancelledAt,dateLocal:target.cancelledDate,action:'إلغاء عملية بقيد عكسي',recordType:'transaction',recordId:target.id,oldValues,newValues:{status:'cancelled',cancelReason:reason},reason});
   save();renderAll();return {ok:true};
  }catch(err){
-  data=priorData;dirty=priorDirty;
-  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);}catch(restoreError){}
+  data=priorData;dirty=priorDirty;let storageRestored=false;
+  try{if(priorRaw===null)localStorage.removeItem(KEY);else localStorage.setItem(KEY,priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(priorData));storageRestored=true;}catch(restoreError){}
   return {ok:false,message:'تعذر إتمام الإلغاء؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+String(err&&err.message||err)};
  }
 }function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
