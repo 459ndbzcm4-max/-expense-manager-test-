@@ -73,7 +73,7 @@ function validateLoadedDataShape(candidate){
  for(const key of collections){if(!Array.isArray(candidate[key]))throw new Error('مجموعة البيانات المحلية غير صالحة: '+key);const ids=new Set();for(const row of candidate[key]){if(!row||typeof row!=='object'||!row.id)throw new Error('سجل محلي غير صالح ضمن '+key);if(ids.has(row.id))throw new Error('معرّف محلي مكرر ضمن '+key+': '+row.id);ids.add(row.id);}}
  if(!candidate.settings||typeof candidate.settings!=='object'||Array.isArray(candidate.settings))throw new Error('إعدادات البيانات المحلية غير صالحة.');
 }
-let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null,dataLoadBlocked=false,dataLoadError='';
+let data=fresh(),dirty=false,filter={from:'',to:''},reportCache={},moneyMigrationPending=false,moneyMigrationUnit=null,dataLoadBlocked=false,dataLoadError='',recoveryImportInProgress=false;
 try{const raw=localStorage.getItem(KEY);if(raw){const p=JSON.parse(raw);if(p&&p.version===2){data={...fresh(),...p};validateLoadedDataShape(data);moneyMigrationUnit=Object.prototype.hasOwnProperty.call(p,'moneyUnit')?p.moneyUnit:null;if(moneyMigrationUnit===null)data.moneyUnit='JOD';moneyMigrationPending=moneyMigrationUnit!=='fils';}else{dataLoadBlocked=true;dataLoadError='إصدار البيانات المحلية غير معروف؛ أوقفنا فتح التطبيق حتى لا تُستبدل بياناتك.';}}}catch(e){dataLoadBlocked=true;dataLoadError='تعذرت قراءة بنية البيانات المحلية أو التحقق منها. لم نفتح سجلًا جديدًا ولم نكتب فوق البيانات. لا تحذف بيانات الموقع؛ نزّل الملف الأصلي إن أمكن أو استعد نسخة احتياطية. '+String(e&&e.message||e);}
 let committedDataSnapshot=JSON.parse(JSON.stringify(data));
 let lastEventTimestamp=0;
@@ -94,7 +94,7 @@ function ensureMoneyInFils(target){
 // إصلاح سجلات النسخ القديمة التي كانت تجزّئ ضغطة تسديد واحدة إلى عدة معاملات.
 // لا تُنفّذ معالجة تلقائية لسجلات التسويات القديمة؛ تبقى بيانات المستخدم كما هي حتى اعتماد أداة إصلاح صريحة.
 ;
-function assertStorageWritable(){if(dataLoadBlocked)throw new Error('الكتابة متوقفة لأن قراءة البيانات المحلية لم تنجح أو لأن إصدارها غير معروف. أُبقيت البيانات الأصلية دون تعديل.');if(moneyMigrationPending)throw new Error('الكتابة متوقفة حتى الموافقة على تحويل وحدة المبالغ وحفظ النسخة الأصلية.');}
+function assertStorageWritable(){if(dataLoadBlocked&&!recoveryImportInProgress)throw new Error('الكتابة متوقفة لأن قراءة البيانات المحلية لم تنجح أو لأن إصدارها غير معروف. أُبقيت البيانات الأصلية دون تعديل.');if(moneyMigrationPending&&!recoveryImportInProgress)throw new Error('الكتابة متوقفة حتى الموافقة على تحويل وحدة المبالغ وحفظ النسخة الأصلية.');}
 function save(){assertStorageWritable();const journal=getJournalEntries(),validation=validateJournalEntries(journal),nextData={...data,journalEntries:journal,journalValidation:validation},serialized=JSON.stringify(nextData),snapshot=JSON.parse(serialized);localStorage.setItem(KEY,serialized);data=nextData;committedDataSnapshot=snapshot;dirty=false;}
 function restoreCommittedData(){data=JSON.parse(JSON.stringify(committedDataSnapshot));dirty=false;}
 function changed(action,details){
@@ -1090,12 +1090,26 @@ $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e
   try{data=merged;save();renderAll();$('backupStatus').textContent='تم الدمج بعد فحص التعارضات والتوازن والتسلسل النقدي.';}
   catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,null);}catch(rollbackError){throw new Error('فشل الدمج. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
  }else{
-  if(!confirm(summary+'\n\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
+  const recoveryMode=dataLoadBlocked;
+  if(recoveryMode&&importMode==='merge')throw new Error('وضع الحماية يسمح باستعادة نسخة سليمة فقط، وليس الدمج.');
+  if(!confirm(summary+'\\n\\nسيتم إنشاء نقطة رجوع محلية ثم استبدال البيانات. هل تريد المتابعة؟'))return;
   const priorRaw=localStorage.getItem(KEY),priorData=data,priorDirty=dirty;
   const rollbackKey=ROLLBACK_KEY;
-  try{localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));if(localStorage.getItem(rollbackKey)!==(priorRaw||JSON.stringify(priorData)))throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية.');data=candidate;save();renderAll();$('backupStatus').textContent='تمت الاستعادة بعد التحقق. حُفظت نقطة الرجوع المحلية السابقة؛ نزّلها إلى «الملفات» قبل استعادة أخرى.';}
-  catch(err){try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}catch(rollbackError){throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}throw err;}
- }
+  try{
+   localStorage.setItem(rollbackKey,priorRaw||JSON.stringify(priorData));
+   if(localStorage.getItem(rollbackKey)!==(priorRaw||JSON.stringify(priorData)))throw new Error('تعذر التحقق من حفظ نقطة الرجوع المحلية.');
+   if(recoveryMode){recoveryImportInProgress=true;dataLoadBlocked=false;}
+   data=candidate;save();renderAll();
+   if(recoveryMode){recoveryImportInProgress=false;dataLoadBlocked=false;moneyMigrationPending=false;const gate=document.getElementById('moneyMigrationGate');if(gate)gate.remove();document.querySelector('.wrap').style.display='';}
+   $('backupStatus').textContent=recoveryMode?'تم إنقاذ البيانات من النسخة الاحتياطية بعد التحقق. احتُفظ بنسخة من البيانات السابقة في نقطة الرجوع المحلية.':'تمت الاستعادة بعد التحقق. حُفظت نقطة الرجوع المحلية السابقة؛ نزّلها إلى «الملفات» قبل استعادة أخرى.';
+  }
+  catch(err){
+   try{rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey);}
+   catch(rollbackError){if(recoveryMode){dataLoadBlocked=true;recoveryImportInProgress=false;}throw new Error('فشلت الاستعادة. '+String(rollbackError&&rollbackError.message||rollbackError));}
+   if(recoveryMode){dataLoadBlocked=true;recoveryImportInProgress=false;}
+   throw err;
+  }
+ }}
 }catch(err){$('backupStatus').textContent='لم تُستعد البيانات: '+err.message;alert('تعذر إتمام النسخ الاحتياطي: '+err.message);}finally{importMode='replace';mergePickerRequested=false;e.target.value='';}});
 $('mergeJson').addEventListener('click',()=>{importMode='merge';mergePickerRequested=true;$('importFile').click();});$('importFile').addEventListener('click',consumeImportPickerClick);
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -1126,9 +1140,10 @@ function showMoneyMigrationGate(){
   gate=document.createElement('div');gate.id='moneyMigrationGate';
   gate.style.cssText='position:fixed;inset:0;z-index:99999;background:#f3f6fa;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto';
   const blocked=dataLoadBlocked,canMigrate=moneyMigrationUnit===null||moneyMigrationUnit==='JOD';
-  gate.innerHTML='<div style="max-width:560px;background:#fff;border:1px solid #dce3ec;border-radius:16px;padding:20px;box-shadow:0 8px 32px #0002;font-family:Arial,Tahoma,sans-serif;line-height:1.8;color:#182230"><h2 style="margin-top:0">'+(blocked?'تم إيقاف فتح البيانات حفاظًا عليها':'يلزم اعتماد تحويل وحدة المبالغ')+'</h2><p>'+(blocked?dataLoadError:(!canMigrate?'وحدة المبالغ المسجلة غير معروفة أو غير مدعومة. أوقفنا التحويل التلقائي؛ نزّل البيانات الأصلية واطلب فحصها قبل المتابعة.':'تحتوي البيانات المحلية على سجلات لا تحمل علامة تؤكد أن المبالغ محفوظة بالفلس. التحويل المتوقع يفترض أن الأرقام الحالية بالدينار الأردني، ويحوّل كل مبلغ إلى الفلس (× 1000).'))+'</p>'+(blocked?'<p><strong>لم نفتح سجلًا فارغًا ولم نكتب فوق البيانات.</strong> نزّل البيانات الأصلية واحتفظ بها قبل أي محاولة استعادة.</p>':(!canMigrate?'<p><strong>لن نجري أي تحويل لأن وحدة المبالغ غير معروفة.</strong></p>':'<p><strong>لن يُجرى أي تعديل قبل موافقتك.</strong> عند الموافقة، تُحفظ نسخة أصلية مستقلة داخل تخزين المتصفح قبل التحويل. ويُنصح بتنزيل نسخة خارجية أيضًا.</p>'))+'<p id="moneyMigrationMessage" style="color:#b42318"></p><div style="display:flex;gap:8px;flex-wrap:wrap">'+(blocked||!canMigrate?'':'<button id="approveMoneyMigration" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">حفظ نسخة أصلية واعتماد التحويل</button>')+'<button id="downloadMoneyOriginal" style="border:1px solid #cbd5e1;border-radius:8px;padding:11px 16px;background:#fff;color:#182230;font-size:15px">تنزيل البيانات الأصلية</button></div><p style="font-size:12px;color:#667085">لن يمكن استخدام التطبيق قبل حسم سلامة البيانات ووحدة المبالغ.</p></div>';
+  gate.innerHTML='<div style="max-width:560px;background:#fff;border:1px solid #dce3ec;border-radius:16px;padding:20px;box-shadow:0 8px 32px #0002;font-family:Arial,Tahoma,sans-serif;line-height:1.8;color:#182230"><h2 style="margin-top:0">'+(blocked?'تم إيقاف فتح البيانات حفاظًا عليها':'يلزم اعتماد تحويل وحدة المبالغ')+'</h2><p>'+(blocked?dataLoadError:(!canMigrate?'وحدة المبالغ المسجلة غير معروفة أو غير مدعومة. أوقفنا التحويل التلقائي؛ نزّل البيانات الأصلية واطلب فحصها قبل المتابعة.':'تحتوي البيانات المحلية على سجلات لا تحمل علامة تؤكد أن المبالغ محفوظة بالفلس. التحويل المتوقع يفترض أن الأرقام الحالية بالدينار الأردني، ويحوّل كل مبلغ إلى الفلس (× 1000).'))+'</p>'+(blocked?'<p><strong>لم نفتح سجلًا فارغًا ولم نكتب فوق البيانات.</strong> نزّل البيانات الأصلية واحتفظ بها قبل أي محاولة استعادة.</p>':(!canMigrate?'<p><strong>لن نجري أي تحويل لأن وحدة المبالغ غير معروفة.</strong></p>':'<p><strong>لن يُجرى أي تعديل قبل موافقتك.</strong> عند الموافقة، تُحفظ نسخة أصلية مستقلة داخل تخزين المتصفح قبل التحويل. ويُنصح بتنزيل نسخة خارجية أيضًا.</p>'))+'<p id="moneyMigrationMessage" style="color:#b42318"></p><div style="display:flex;gap:8px;flex-wrap:wrap">'+(blocked?'<button id="recoverFromBackup" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">استعادة نسخة احتياطية سليمة</button>':(!canMigrate?'':'<button id="approveMoneyMigration" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">حفظ نسخة أصلية واعتماد التحويل</button>'))+'<button id="downloadMoneyOriginal" style="border:1px solid #cbd5e1;border-radius:8px;padding:11px 16px;background:#fff;color:#182230;font-size:15px">تنزيل البيانات الأصلية</button></div><p style="font-size:12px;color:#667085">لن يمكن استخدام التطبيق قبل حسم سلامة البيانات ووحدة المبالغ.</p></div>';
   document.body.appendChild(gate);
   const approve=gate.querySelector('#approveMoneyMigration');if(approve)approve.addEventListener('click',approveMoneyMigration);
+  const recover=gate.querySelector('#recoverFromBackup');if(recover)recover.addEventListener('click',()=>{importMode='replace';mergePickerRequested=false;const picker=document.getElementById('importFile');if(picker)picker.click();});
   gate.querySelector('#downloadMoneyOriginal').addEventListener('click',downloadOriginalMoneyData);
  }
  document.querySelector('.wrap').style.display='none';
