@@ -129,6 +129,7 @@ function cancelWalletTransfer(id,reason){
 }
 function cancelFinancialTransaction(id,reason){
  const t=data.transactions.find(x=>x.id===id);if(!t||!isFinancialActive(t))return {ok:false,message:'العملية غير موجودة أو ملغاة سابقًا.'};
+ if(today()<String(t.date||''))return {ok:false,message:'لا يمكن إلغاء معاملة مؤرخة في المستقبل؛ يجب أن يكون تاريخ الإلغاء مساويًا لتاريخ المعاملة أو لاحقًا له.'};
  const linkedDebt=data.debts.find(d=>d.id===t.debtId);
  if((t.type==='debt_out'||t.type==='debt_in')&&linkedDebt){
   const key=debtGroupKey(linkedDebt),settlementType=linkedDebt.type==='receivable'?'debt_collection':'debt_repayment';
@@ -153,8 +154,46 @@ function cancelFinancialTransaction(id,reason){
   return {ok:false,message:'تعذر إتمام الإلغاء؛ '+(storageRestored?'أُعيدت البيانات والتخزين إلى حالتهما السابقة. ':'تعذر تأكيد استعادة التخزين؛ لا تتابع الإدخال قبل إعادة تحميل التطبيق أو تنزيل نقطة الرجوع. ')+String(err&&err.message||err)};
  }
 }function balance(wid){const w=data.wallets.find(x=>x.id===wid);if(!w)return 0;let n=Number(w.opening)||0;data.transactions.forEach(t=>{if(t.walletId===wid)n+=cashEffect(t)*Number(t.amount)});data.transfers.filter(isFinancialActive).forEach(t=>{if(t.from===wid)n-=Number(t.amount);if(t.to===wid)n+=Number(t.amount)});return n;}
-function walletTimelineValid(wid,extra={}){const w=data.wallets.find(x=>x.id===wid);if(!w)return false;const opening=Number(w.opening??0);if(!Number.isSafeInteger(opening)||opening<0)return false;const events=[];data.transactions.filter(t=>isFinancialActive(t)&&t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0),allowNegative:t.type==='debt_repayment'}));data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{const amount=Number(t.amount||0),date=String(t.date||''),time=String(t.createdAt||''),cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10),cancelTime=String(t.cancelledAt||'');if(t.from===wid)events.push({date,time,id:String(t.id||''),delta:-amount,allowNegative:false});if(t.to===wid)events.push({date,time,id:String(t.id||''),delta:amount,allowNegative:false});if(cancelled&&cancelDate){if(t.from===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:amount,allowNegative:false});if(t.to===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:-amount,allowNegative:false});}});if(extra.transaction&&extra.transaction.walletId===wid){const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect(t)*Number(t.amount||0),allowNegative:t.type==='debt_repayment'});}if(extra.transfer){const t=extra.transfer;if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0),allowNegative:false});if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0),allowNegative:false});}events.forEach((e,i)=>e.sequence=i);events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.sequence-b.sequence);let running=opening;for(const e of events){if(!Number.isSafeInteger(e.delta))return false;const next=running+e.delta;if(!Number.isSafeInteger(next))return false;if(next<0&&!e.allowNegative&&!(running<0&&e.delta>0))return false;running=next;}return true;}
-function canSettleDebt(group,amount){return !!group&&Number.isSafeInteger(amount)&&amount>0&&amount<=Number(group.remaining||0);}
+function walletTimelineValid(wid,extra={}){
+ const w=data.wallets.find(x=>x.id===wid);if(!w)return false;
+ const opening=Number(w.opening??0);if(!Number.isSafeInteger(opening)||opening<0)return false;
+ const events=[];
+ data.transactions.filter(t=>t.walletId===wid&&t.id!==extra.excludeTransactionId).forEach(t=>{
+  const originalDelta=cashEffect({...t,status:'posted'})*Number(t.amount||0),cancelled=t.status==='cancelled';
+  events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:originalDelta,allowNegative:t.type==='debt_repayment'});
+  if(cancelled){
+   const reversalDate=String(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10);
+   if(reversalDate)events.push({date:reversalDate,time:String(t.cancelledAt||''),id:String(t.id||'')+':reversal',delta:-originalDelta,allowNegative:false});
+  }
+ });
+ data.transfers.filter(t=>t.id!==extra.excludeTransferId).forEach(t=>{
+  const amount=Number(t.amount||0),date=String(t.date||''),time=String(t.createdAt||''),cancelled=t.status==='cancelled',cancelDate=String(t.cancelledDate||t.cancelledAt||'').slice(0,10),cancelTime=String(t.cancelledAt||'');
+  if(t.from===wid)events.push({date,time,id:String(t.id||''),delta:-amount,allowNegative:false});
+  if(t.to===wid)events.push({date,time,id:String(t.id||''),delta:amount,allowNegative:false});
+  if(cancelled&&cancelDate){
+   if(t.from===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:amount,allowNegative:false});
+   if(t.to===wid)events.push({date:cancelDate,time:cancelTime,id:String(t.id||'')+':reversal',delta:-amount,allowNegative:false});
+  }
+ });
+ if(extra.transaction&&extra.transaction.walletId===wid){
+  const t=extra.transaction;events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:cashEffect({...t,status:'posted'})*Number(t.amount||0),allowNegative:t.type==='debt_repayment'});
+ }
+ if(extra.transfer){
+  const t=extra.transfer;
+  if(t.from===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:-Number(t.amount||0),allowNegative:false});
+  if(t.to===wid)events.push({date:String(t.date||''),time:String(t.createdAt||''),id:String(t.id||''),delta:Number(t.amount||0),allowNegative:false});
+ }
+ events.forEach((e,i)=>e.sequence=i);
+ events.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time)||a.sequence-b.sequence);
+ let running=opening;
+ for(const e of events){
+  if(!Number.isSafeInteger(e.delta))return false;
+  const next=running+e.delta;if(!Number.isSafeInteger(next))return false;
+  if(next<0&&!e.allowNegative&&!(running<0&&e.delta>0))return false;
+  running=next;
+ }
+ return true;
+}function canSettleDebt(group,amount){return !!group&&Number.isSafeInteger(amount)&&amount>0&&amount<=Number(group.remaining||0);}
 // طبقة الأستاذ العام: تُشتق القيود من المستندات الحالية دون تغييرها أو حذفها.
 function ledgerAccount(id,name,kind,normalSide,sourceId){return {id,name,kind,normalSide,sourceId:sourceId||null};}
 function getLedgerAccounts(){
