@@ -282,11 +282,12 @@ function validateJournalEntries(entries=getJournalEntries()){
 }
 function runLedgerSelfTests(){
  const original=data,results=[];
+ const check=(name,condition,detail='')=>results.push({name,passed:!!condition,detail});
  const tomorrowDate=()=>{const d=new Date();d.setDate(d.getDate()+1);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
  check('قبول تاريخ مالي يوافق اليوم',validFinancialDate(today()),'تاريخ اليوم صالح للإدخال');
  check('رفض تاريخ مالي مستقبلي',!validFinancialDate(tomorrowDate()),'لا تُقبل حركة مالية مؤرخة بعد اليوم');
  check('رفض تاريخ مالي غير مكتمل أو غير صالح',!validFinancialDate('')&&!validFinancialDate('2026-02-30'),'يجب أن يكون التاريخ كاملًا وصحيحًا');
- const check=(name,condition,detail='')=>results.push({name,passed:!!condition,detail});
+
  const relationFixture={wallets:[{id:'rel-wallet'}],accounts:[{id:'rel-income',type:'income'},{id:'rel-expense',type:'expense'}],debts:[{id:'rel-debt',type:'receivable',person:'اختبار',amount:1000,walletId:'rel-wallet',date:'2026-01-01',transactionId:'rel-origin'}]};
  const relationTx={id:'rel-income-tx',type:'income',walletId:'rel-wallet',accountId:'rel-income',amount:100,date:'2026-01-01'};
  check('قبول معاملة ذات محفظة وحساب موجودين ومتوافقين',validateTransactionReferences(relationTx,relationFixture).length===0,'المراجع صالحة ونوع الحساب متوافق');
