@@ -164,7 +164,7 @@ function journalLinesForTransfer(t){const amount=Math.round(Number(t.amount)||0)
 function getJournalEntries(){
  const entries=[];
  data.wallets.forEach(w=>{const amount=Math.round(Number(w.opening)||0);if(amount>0)entries.push({id:'opening:'+w.id,sourceType:'wallet_opening',sourceId:w.id,date:w.created||today(),lines:[ledgerLine('wallet:'+w.id,amount,0,'رصيد افتتاحي للمحفظة'),ledgerLine('system:opening-equity',0,amount,'حقوق الملكية — رصيد افتتاحي')]});});
- data.transactions.forEach(t=>{const lines=journalLinesForTransaction(t);entries.push({id:'transaction:'+t.id,sourceType:'transaction',sourceId:t.id,date:t.date,lines});if(t.status==='cancelled')entries.push({id:'reversal:'+t.id,sourceType:'transaction_reversal',sourceId:t.id,date:(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10),lines:lines.map(l=>({...l,debitMinor:l.creditMinor,creditMinor:l.debitMinor,line_description:'قيد عكسي لإلغاء العملية'}))});});
+ data.transactions.forEach(t=>{const lines=journalLinesForTransaction(t);entries.push({id:'transaction:'+t.id,sourceType:'transaction',sourceId:t.id,date:t.date,lines});if(t.status==='cancelled')entries.push({id:'reversal:'+t.id,sourceType:'transaction_reversal',sourceId:t.id,date:(t.cancelledDate||t.cancelledAt||t.date||'').slice(0,10),lines:lines.map(l=>({...l,debitMinor:l.creditMinor,creditMinor:l.debitMinor,memo:'قيد عكسي لإلغاء العملية'}))});});
  data.transfers.forEach(t=>entries.push({id:'transfer:'+t.id,sourceType:'transfer',sourceId:t.id,date:t.date,lines:journalLinesForTransfer(t)}));
  return entries;
 }
@@ -243,6 +243,9 @@ function runLedgerSelfTests(){
   data={version:2,moneyUnit:'fils',wallets:[{id:'cancel-wallet',name:'اختبار الإلغاء',opening:50000}],accounts:[{id:'cancel-exp',name:'مصروف',type:'expense'}],debts:[],transactions:[{id:'cancelled-expense',type:'expense',amount:10000,walletId:'cancel-wallet',accountId:'cancel-exp',description:'مصروف تجريبي',date:'2026-04-01',status:'cancelled',cancelledAt:'2026-04-02T10:00:00Z'}],transfers:[],payments:[],audit:[]};
   const cancelEntries=getJournalEntries(),cancelBalances=getLedgerBalances(cancelEntries),walletCancel=cancelBalances.find(a=>a.id==='wallet:cancel-wallet');
   check('القيد العكسي يعادل أثر العملية الملغاة',cancelEntries.some(e=>e.id==='reversal:cancelled-expense')&&walletCancel?.balanceMinor===50000,'رصيد المحفظة يعود إلى الرصيد الافتتاحي');
+  const cancelledOriginal=cancelEntries.find(e=>e.id==='transaction:cancelled-expense'),cancelledReversal=cancelEntries.find(e=>e.id==='reversal:cancelled-expense');
+  check('كل سطر في القيد العكسي يقلب المدين والدائن للأصل',!!cancelledOriginal&&!!cancelledReversal&&cancelledOriginal.lines.length===cancelledReversal.lines.length&&cancelledOriginal.lines.every((l,i)=>l.debitMinor===cancelledReversal.lines[i].creditMinor&&l.creditMinor===cancelledReversal.lines[i].debitMinor),'القيد العكسي مطابق للأصل مع تبديل جانبي المدين والدائن');
+  check('وصف سطر القيد العكسي يستخدم حقل المذكرة الصحيح',cancelledReversal?.lines.every(l=>l.memo==='قيد عكسي لإلغاء العملية'),'يجب أن يكون الوصف في memo');
   check('العملية الملغاة لا تدخل كشف الدخل',getIncomeReport('2026-04-01','2026-04-30').rows.length===0,'استبعاد العملية الملغاة من الدخل والمصروفات');
   check('العملية الملغاة لا تدخل حركة المحفظة',getWalletMovementReport('2026-04-01','2026-04-30')[0]?.closing===50000,'لا أثر نقدي للعملية الملغاة');
   // اختبار إلغاء تسوية ذمة: تُلغى وثيقة السداد والقيد النقدي معًا، فيعود رصيد الذمة.
