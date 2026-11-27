@@ -152,7 +152,7 @@ function cancelFinancialTransaction(id,reason){
  try{data=JSON.parse(JSON.stringify(data));}catch(err){return {ok:false,message:'تعذر إنشاء نسخة عمل آمنة؛ لم يُنفذ الإلغاء. '+String(err&&err.message||err)};}
  try{
   const target=data.transactions.find(x=>x.id===id),debt=data.debts.find(d=>d.id===target.debtId);
-  const oldValues={status:target.status||'posted',amount:target.amount,type:target.type,walletId:target.walletId,date:target.date};
+  const oldValues={status:target.status||'posted',amount:target.amount,type:target.type,walletId:target.walletId,accountId:target.accountId,debtId:target.debtId,debtGroupKey:target.debtGroupKey,date:target.date};
   target.status='cancelled';target.cancelledAt=new Date().toISOString();target.cancelledDate=today();target.cancelledBy='local_owner';target.cancelReason=reason;
   data.payments.filter(p=>p.transactionId===target.id&&isFinancialActive(p)).forEach(p=>{p.status='cancelled';p.cancelledAt=target.cancelledAt;p.cancelledDate=target.cancelledDate;p.cancelReason=reason;});
   if(debt&&(target.type==='debt_out'||target.type==='debt_in')){debt.status='cancelled';debt.cancelledAt=target.cancelledAt;debt.cancelledDate=target.cancelledDate;debt.cancelledBy=target.cancelledBy;debt.cancelReason=reason;}
@@ -274,6 +274,9 @@ function validateCancellationAuditRecord(record,recordType,auditRows,expectedAct
  if(old.status==='cancelled'||Number(old.amount)!==Number(record.amount)||String(old.date)!==String(record.date))errors.push('القيم السابقة في سجل التدقيق غير مطابقة: '+record.id);
  if(recordType==='transaction'&&old.type!==record.type)errors.push('نوع المعاملة السابق في سجل التدقيق غير مطابق: '+record.id);
  if(recordType==='transaction'&&old.walletId!==record.walletId)errors.push('محفظة المعاملة السابقة في سجل التدقيق غير مطابقة: '+record.id);
+ if(recordType==='transaction'&&Object.prototype.hasOwnProperty.call(old,'accountId')&&old.accountId!==record.accountId)errors.push('حساب المعاملة السابق في سجل التدقيق غير مطابق: '+record.id);
+ if(recordType==='transaction'&&Object.prototype.hasOwnProperty.call(old,'debtId')&&old.debtId!==record.debtId)errors.push('مرجع الذمة السابق في سجل التدقيق غير مطابق: '+record.id);
+ if(recordType==='transaction'&&Object.prototype.hasOwnProperty.call(old,'debtGroupKey')&&old.debtGroupKey!==record.debtGroupKey)errors.push('مجموعة التسوية السابقة في سجل التدقيق غير مطابقة: '+record.id);
  if(recordType==='transfer'&&(old.from!==record.from||old.to!==record.to))errors.push('محافظ التحويل السابقة في سجل التدقيق غير مطابقة: '+record.id);
  return errors;
 }
@@ -317,12 +320,15 @@ function runLedgerSelfTests(){
  const scopedAudit=getReportAuditRows('2026-01-01','2026-01-07',auditFixture);
  check('سجل الإلغاءات شامل ولا يتأثر بمرشح المحفظة',scopedAudit.map(x=>x.recordId).join(',')==='a1,a3','يشمل أنواع المعاملات والتحويلات ضمن الفترة فقط');
 
- const auditRecord={id:'audit-test',status:'cancelled',amount:500,type:'expense',walletId:'w',date:'2026-01-01',cancelledDate:'2026-01-02',cancelledAt:'2026-01-02T10:00:00.000Z',cancelledBy:'local_owner',cancelReason:'تصحيح'};
- const auditRow={recordType:'transaction',recordId:'audit-test',action:'إلغاء عملية بقيد عكسي',date:auditRecord.cancelledAt,dateLocal:auditRecord.cancelledDate,actor:auditRecord.cancelledBy,reason:auditRecord.cancelReason,oldValues:{status:'posted',amount:500,type:'expense',walletId:'w',date:'2026-01-01'},newValues:{status:'cancelled',cancelledBy:'local_owner',cancelReason:'تصحيح'}};
+ const auditRecord={id:'audit-test',status:'cancelled',amount:500,type:'expense',walletId:'w',accountId:'audit-account',debtId:'audit-debt',debtGroupKey:'audit-group',date:'2026-01-01',cancelledDate:'2026-01-02',cancelledAt:'2026-01-02T10:00:00.000Z',cancelledBy:'local_owner',cancelReason:'تصحيح'};
+ const auditRow={recordType:'transaction',recordId:'audit-test',action:'إلغاء عملية بقيد عكسي',date:auditRecord.cancelledAt,dateLocal:auditRecord.cancelledDate,actor:auditRecord.cancelledBy,reason:auditRecord.cancelReason,oldValues:{status:'posted',amount:500,type:'expense',walletId:'w',accountId:'audit-account',debtId:'audit-debt',debtGroupKey:'audit-group',date:'2026-01-01'},newValues:{status:'cancelled',cancelledBy:'local_owner',cancelReason:'تصحيح'}};
  check('قبول سجل تدقيق إلغاء مطابق',validateCancellationAuditRecord(auditRecord,'transaction',[auditRow],'إلغاء عملية بقيد عكسي').length===0,'بيانات الحركة وسجل التدقيق متطابقة');
  check('رفض سجل تدقيق إلغاء مفقود',validateCancellationAuditRecord(auditRecord,'transaction',[],'إلغاء عملية بقيد عكسي').length>0,'لا يمر الإلغاء دون أثر تدقيق');
  check('رفض سجل تدقيق إلغاء مكرر',validateCancellationAuditRecord(auditRecord,'transaction',[auditRow,auditRow],'إلغاء عملية بقيد عكسي').length>0,'لكل حركة ملغاة سجل واحد فقط');
  check('رفض اختلاف القيم القديمة في سجل التدقيق',validateCancellationAuditRecord(auditRecord,'transaction',[{...auditRow,oldValues:{...auditRow.oldValues,amount:999}}],'إلغاء عملية بقيد عكسي').length>0,'القيم السابقة يجب أن تطابق المستند الأصلي');
+ check('رفض تغيير الحساب المرتبط بمعاملة ملغاة',validateCancellationAuditRecord(auditRecord,'transaction',[{...auditRow,oldValues:{...auditRow.oldValues,accountId:'different-account'}}],'إلغاء عملية بقيد عكسي').length>0,'الحساب السابق يجب أن يطابق سجل المعاملة');
+ check('رفض تغيير مرجع الذمة لمعاملة ملغاة',validateCancellationAuditRecord(auditRecord,'transaction',[{...auditRow,oldValues:{...auditRow.oldValues,debtId:'different-debt'}}],'إلغاء عملية بقيد عكسي').length>0,'مرجع الذمة السابق يجب أن يطابق سجل المعاملة');
+ check('رفض تغيير مجموعة التسوية لمعاملة ملغاة',validateCancellationAuditRecord(auditRecord,'transaction',[{...auditRow,oldValues:{...auditRow.oldValues,debtGroupKey:'different-group'}}],'إلغاء عملية بقيد عكسي').length>0,'مجموعة التسوية السابقة يجب أن تطابق سجل المعاملة');
  check('رفض سجل إلغاء مرتبط بحركة ما زالت نشطة',validateCancellationAuditRecord({...auditRecord,status:'posted'},'transaction',[auditRow],'إلغاء عملية بقيد عكسي').length>0,'لا يقبل أثر إلغاء دون حالة ملغاة');
  const tomorrowDate=()=>{const d=new Date();d.setDate(d.getDate()+1);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
  check('قبول تاريخ مالي يوافق اليوم',validFinancialDate(today()),'تاريخ اليوم صالح للإدخال');
