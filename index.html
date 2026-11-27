@@ -735,6 +735,12 @@ async function runBackupSelfTests(){
   check('رفض دمج سجل نشط فوق ذمة ملغاة بالمعرّف نفسه',cancellationConflictRejected,'لا يجوز أن تعيد نسخة قديمة إحياء ذمة ملغاة بصمت');
   let newRowsAllowed=true;try{validateMerge({...basePayload(),debts:[{id:'new-merge-debt',type:'receivable',person:'جديد',amount:500}]});}catch(e){newRowsAllowed=false;}
   check('السماح بإضافة سجلات جديدة غير متعارضة أثناء الدمج',newRowsAllowed,'الدمج يضيف السجلات الجديدة ولا يبدل السجلات القائمة');
+  const mergeTransferBase=basePayload();mergeTransferBase.wallets=[{id:'merge-transfer-a',name:'مصدر',opening:5000},{id:'merge-transfer-b',name:'مستقبل',opening:0}];mergeTransferBase.transfers=[{id:'merge-transfer-id',from:'merge-transfer-a',to:'merge-transfer-b',amount:1000,date:'2026-01-02'}];data=mergeTransferBase;
+  let identicalTransferMerge=true,mergedTransferCount=0;try{const incoming=JSON.parse(JSON.stringify(mergeTransferBase));validateMerge(incoming);const merged=JSON.parse(JSON.stringify(data));backupCollections.forEach(k=>{const ids=new Set(merged[k].map(x=>x.id));incoming[k].forEach(x=>{if(!ids.has(x.id)){merged[k].push(x);ids.add(x.id);}});});mergedTransferCount=merged.transfers.length;}catch(e){identicalTransferMerge=false;}
+  check('الدمج المتكرر لا يضاعف التحويل المطابق',identicalTransferMerge&&mergedTransferCount===1,'يبقى سجل التحويل الواحد بمعرّفه ولا يتكرر أثره النقدي');
+  let changedTransferConflictRejected=false;try{validateMerge({...basePayload(),wallets:mergeTransferBase.wallets,transfers:[{...mergeTransferBase.transfers[0],amount:2000}]});}catch(e){changedTransferConflictRejected=String(e.message).includes('تعارض معرّفات');}
+  check('رفض دمج تحويل مختلف يحمل المعرّف نفسه',changedTransferConflictRejected,'لا يستبدل مبلغ التحويل الأصلي ولا يعاد تفسيره');
+
   let duplicateIncomingRejected=false;try{validateMerge({...basePayload(),wallets:[{id:'dup-merge-wallet',name:'أ'},{id:'dup-merge-wallet',name:'ب'}]});}catch(e){duplicateIncomingRejected=String(e.message).includes('معرّف مكرر');}
   check('رفض تكرار معرّف داخل بيانات الدمج الواردة',duplicateIncomingRejected,'لا يجوز إسقاط السجل الثاني بصمت أثناء بناء الدمج');
   data={...basePayload(),wallets:[{id:'dup-current-wallet',name:'أ'},{id:'dup-current-wallet',name:'ب'}]};
