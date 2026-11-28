@@ -58,6 +58,7 @@
 </section>
 <section id="settings" class="panel">
 <div class="card"><h2>إعدادات العرض</h2><p class="muted">تؤثر هذه الإعدادات في طريقة عرض الأرقام والتواريخ ورمز العملة فقط. لا تغيّر المبالغ المحفوظة بالفلس ولا القيود المحاسبية.</p><form id="settingsForm"><div class="grid"><div><label for="digitStyle">نمط الأرقام</label><select id="digitStyle"><option value="arab">عربية (٠١٢٣٤٥٦٧٨٩)</option><option value="latn">غربية (0123456789)</option><option value="arabext">فارسية (۰۱۲۳۴۵۶۷۸۹)</option></select></div><div><label for="currencyCode">العملة</label><select id="currencyCode"><option value="JOD">الدينار الأردني</option><option value="USD">الدولار الأمريكي</option><option value="SAR">الريال السعودي</option><option value="AED">الدرهم الإماراتي</option><option value="KWD">الدينار الكويتي</option><option value="EGP">الجنيه المصري</option><option value="EUR">اليورو</option><option value="GBP">الجنيه الإسترليني</option></select></div><div class="full"><label for="currencySymbol">رمز العملة المعروض</label><input id="currencySymbol" maxlength="12" required placeholder="د.أ"></div></div><div class="actions"><button class="btn" type="submit">حفظ إعدادات العرض</button></div></form><p class="muted">الدينار الأردني هو العملة الافتراضية. تغيير العملة يغيّر الرمز المعروض فقط ولا يحوّل القيم أو أسعار الصرف.</p></div>
+<div class="card"><h2>إعادة التطبيق إلى الوضع الافتراضي</h2><p class="muted">يمسح المحافظ والحسابات وجميع السجلات المالية المحفوظة على هذا الجهاز، ويعيد إعدادات العرض الافتراضية: الدينار الأردني والأرقام العربية. ينزّل لقطة احتياطية قبل المسح. لا تُنفّذ العملية إلا إذا كانت البيانات الحالية تجريبية وتريد حذفها.</p><div class="actions"><button class="btn secondary" id="resetToDefault">حذف بيانات التطوير وإعادة الضبط</button></div><div id="resetStatus" class="muted" role="status" aria-live="polite"></div></div>
 </section>
 </div>
 <script>
@@ -933,6 +934,30 @@ function csvReport(){
 $('txDate').value=today();$('transferDate').value=today();$('debtDate').value=today();$('paymentDate').value=today();renderSettings();
  $('currencyCode').addEventListener('change',()=>{const symbols={JOD:"د.أ",USD:"$",SAR:"ر.س",AED:"د.إ",KWD:"د.ك",EGP:"ج.م",EUR:"€",GBP:"£"};$('currencySymbol').value=symbols[$('currencyCode').value]||'';});
  $('settingsForm').addEventListener('submit',e=>{e.preventDefault();const digitStyle=$('digitStyle').value,currencyCode=$('currencyCode').value,currencySymbol=$('currencySymbol').value.trim().replace(/[^\p{L}\p{N}\s.$€£¥₹₩₽-]/gu,'');if(!['arab','latn','arabext'].includes(digitStyle)||!['JOD','USD','SAR','AED','KWD','EGP','EUR','GBP'].includes(currencyCode)||!currencySymbol)return alert('تحقق من نمط الأرقام ورمز العملة.');data.settings={digitStyle,currencyCode,currencySymbol};if(changed('تعديل إعدادات العرض',currencyCode+' / '+digitStyle)){alert('حُفظت إعدادات العرض. لم تتغير القيم المالية أو القيود.');}});
+ $('resetToDefault').addEventListener('click',async()=>{
+ if(dataLoadBlocked)return alert('تعذر قراءة البيانات المحلية؛ أُوقف المسح حفاظًا على البيانات.');
+ if(!confirm('سيُحذف من هذا الجهاز كل ما يلي: المحافظ والحسابات والمعاملات والتحويلات والذمم والسداد والقيود وسجل التدقيق. ستعود إعدادات العملة والأرقام إلى الوضع الافتراضي.'))return;
+ const phrase=prompt('للتأكيد اكتب العبارة كما هي: إعادة ضبط');
+ if(phrase!=='إعادة ضبط')return alert('لم تُنفّذ إعادة الضبط؛ عبارة التأكيد غير مطابقة.');
+ let priorRaw;
+ try{priorRaw=localStorage.getItem(KEY);}catch(err){return alert('تعذر قراءة البيانات الحالية؛ لم يُنفّذ المسح. '+String(err&&err.message||err));}
+ let backupContent;
+ try{backupContent=await makeBackup(false);}catch(err){backupContent=JSON.stringify({format:'expense-manager-raw-snapshot-before-reset',createdAt:new Date().toISOString(),data:priorRaw===null?data:JSON.parse(priorRaw)},null,2);}
+ if(!backupContent)return;
+ download('نسخة-قبل-إعادة-الضبط-'+today()+'.json',backupContent,'application/json;charset=utf-8');
+ const clean=fresh(),serialized=JSON.stringify(clean);
+ try{
+  localStorage.setItem(KEY,serialized);
+  if(localStorage.getItem(KEY)!==serialized)throw new Error('تعذر التحقق من حفظ الحالة الافتراضية.');
+  data=clean;committedDataSnapshot=JSON.parse(serialized);dirty=false;moneyMigrationPending=false;moneyMigrationUnit='fils';dataLoadBlocked=false;dataLoadError='';
+  renderAll();$('resetStatus').textContent='أُعيد التطبيق إلى الوضع الافتراضي. المحافظ والحسابات والسجلات فارغة.';
+  alert('تمت إعادة التطبيق إلى الوضع الافتراضي. احتُفظ بملف النسخة قبل المسح في التنزيلات.');
+ }catch(err){
+  try{restoreStorageValue(localStorage,KEY,priorRaw);data=priorRaw===null?fresh():JSON.parse(priorRaw);committedDataSnapshot=JSON.parse(JSON.stringify(data));dirty=false;renderAll();}
+  catch(restoreError){dataLoadBlocked=true;dataLoadError='تعذر إتمام إعادة الضبط أو استعادة البيانات السابقة. لا تتابع الاستخدام قبل استعادة النسخة الاحتياطية.';}
+  alert('لم تكتمل إعادة الضبط؛ حاولنا استعادة البيانات السابقة. '+String(err&&err.message||err));
+ }
+});
  document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-tab]').forEach(x=>{const active=x===b;x.classList.toggle('active',active);if(active)x.setAttribute('aria-current','page');else x.removeAttribute('aria-current');});document.querySelectorAll('.panel').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='reports')renderReports();if(b.dataset.tab==='settings')renderSettings();}));
 $('walletForm').addEventListener('submit',e=>{e.preventDefault();const name=$('walletName').value.trim(),opening=amountToFils($('walletOpening').value);if(!name)return;if(!Number.isSafeInteger(opening)||opening<0)return alert('أدخل رصيدًا افتتاحيًا صحيحًا (صفر أو أكثر، وبحد أقصى ثلاث منازل عشرية).');if(data.wallets.some(w=>w.name.toLowerCase()===name.toLowerCase()))return alert('اسم المحفظة موجود مسبقًا.');data.wallets.push({id:uid(),name,opening:opening,created:today()});if(changed('إضافة محفظة',name)){$('walletForm').reset();$('walletOpening').value='0';}});
 $('accountList').addEventListener('click',e=>{
