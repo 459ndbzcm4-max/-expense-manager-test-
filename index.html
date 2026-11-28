@@ -954,7 +954,7 @@ async function makeBackup(encrypted){
  if(!encrypted){const envelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt,checksum:await sha256Hex(serialized),payload},output=JSON.stringify(envelope,null,2);ensureBackupSize(output,'النسخة الناتجة');return output;}
  const password=prompt('أنشئ كلمة مرور قوية لتشفير النسخة. لن تُحفظ كلمة المرور داخل التطبيق.');if(password===null)return null;if(password.length<10)throw new Error('كلمة المرور يجب ألا تقل عن 10 أحرف.');
  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await deriveBackupKey(password,salt),cipher=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,toBytes(serialized));
- const output=JSON.stringify({format:BACKUP_FORMAT, schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher)),createdAt},null,2);if(toBytes(output).length>MAX_BACKUP_BYTES)throw new Error('حجم النسخة الناتجة يتجاوز الحد المسموح (20 ميغابايت).');return output;
+ const output=JSON.stringify({format:BACKUP_FORMAT, schemaVersion:BACKUP_SCHEMA,encrypted:true,algorithm:'AES-256-GCM',kdf:'PBKDF2-SHA-256',iterations:250000,salt:bytesToB64(salt),iv:bytesToB64(iv),ciphertext:bytesToB64(new Uint8Array(cipher)),createdAt},null,2);ensureBackupSize(output,'النسخة الناتجة');return output;
 }
 function validateBackupSettings(candidate){
  const settings=candidate&&candidate.settings;
