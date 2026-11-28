@@ -90,9 +90,20 @@ function nextEventTimestamp(){
 }
 // توحيد التخزين النقدي بوحدات الفلس الصحيحة (1 دينار = 1000 فلس).
 function ensureMoneyInFils(target){
- if(!target||target.moneyUnit==='fils')return target;
+ if(!target||typeof target!=='object')throw new Error('بيانات الترحيل غير صالحة.');
+ if(target.moneyUnit==='fils')return target;
  const fields=[['wallets','opening'],['transactions','amount'],['transfers','amount'],['debts','amount'],['payments','amount']];
- fields.forEach(([collection,field])=>{if(Array.isArray(target[collection]))target[collection].forEach(item=>{if(item&&item[field]!==undefined&&item[field]!==null){const value=Number(item[field]);if(Number.isFinite(value))item[field]=Math.round(value*1000);}});});
+ fields.forEach(([collection,field])=>{
+  if(!Array.isArray(target[collection]))throw new Error('مجموعة مالية مفقودة أو غير صالحة: '+collection);
+  target[collection].forEach((item,index)=>{
+   if(!item||typeof item!=='object')throw new Error('سجل مالي غير صالح: '+collection+'['+index+'].');
+   if(item[field]===undefined||item[field]===null)return;
+   if(typeof item[field]==='boolean'||item[field]==='')throw new Error('مبلغ غير صالح: '+collection+'['+index+'].');
+   const value=Number(item[field]),scaled=value*1000,rounded=Math.round(scaled);
+   if(!Number.isFinite(value)||!Number.isSafeInteger(rounded)||Math.abs(scaled-rounded)>1e-7)throw new Error('المبلغ لا يمكن تحويله بدقة إلى فلس أو يتجاوز النطاق الآمن: '+collection+'['+index+'].');
+   item[field]=rounded;
+  });
+ });
  target.moneyUnit='fils';return target;
 }
 // لا تُحوّل بيانات المستخدم عند فتح التطبيق؛ يتطلب ترحيل الوحدات موافقة صريحة ونسخة أصلية محفوظة.
@@ -1060,6 +1071,25 @@ async function parseBackupFile(file){
 async function runBackupSelfTests(){
  const original=data,originalDirty=dirty,originalCommitted=committedDataSnapshot,oldPrompt=window.prompt,results=[];
  const check=(name,passed,detail='')=>results.push({name,passed:!!passed,detail});
+ // اختبارات مستقلة لترحيل وحدة المبالغ دون لمس بيانات المستخدم.
+ try{
+  const fixture={wallets:[{opening:1}],transactions:[{amount:12.6}],transfers:[{amount:20.6}],debts:[{amount:115}],payments:[{amount:35}]};
+  ensureMoneyInFils(fixture);
+  const migrationValues=[fixture.wallets[0].opening,fixture.transactions[0].amount,fixture.transfers[0].amount,fixture.debts[0].amount,fixture.payments[0].amount];
+  check('تحويل مجموعات المبالغ الخمس إلى الفلس بدقة',migrationValues.join(',')==='1000,12600,20600,115000,35000'&&fixture.moneyUnit==='fils','الأرصدة الافتتاحية والمعاملات والتحويلات والذمم والدفعات');
+  const once=JSON.stringify(fixture);ensureMoneyInFils(fixture);
+  check('منع تكرار تحويل وحدة المبالغ',JSON.stringify(fixture)===once,'إعادة الاستدعاء لا تضاعف القيم');
+  let precisionRejected=false;try{ensureMoneyInFils({wallets:[{opening:1.0001}],transactions:[],transfers:[],debts:[],payments:[]});}catch(e){precisionRejected=true;}
+  check('رفض مبلغ لا يمكن تمثيله بدقة بالفلس',precisionRejected,'لا يوجد تقريب صامت للكسور الزائدة');
+  let unsafeRejected=false;try{ensureMoneyInFils({wallets:[{opening:Number.MAX_SAFE_INTEGER}],transactions:[],transfers:[],debts:[],payments:[]});}catch(e){unsafeRejected=true;}
+  check('رفض تجاوز النطاق العددي الآمن عند التحويل',unsafeRejected,'يُرفض تجاوز Number.MAX_SAFE_INTEGER');
+  let malformedRejected=false;try{ensureMoneyInFils({wallets:null,transactions:[],transfers:[],debts:[],payments:[]});}catch(e){malformedRejected=true;}
+  check('رفض المجموعة المالية المفقودة أو غير الصالحة',malformedRejected,'لا يتم تجاوز مجموعة دون تحويلها');
+  const mockStorage={value:'original',getItem(){return this.value;},setItem(k,v){this.value=v;}};
+  const previous={version:2,wallets:[],transactions:[],transfers:[],debts:[],payments:[]};
+  mockStorage.value='changed';rollbackMoneyMigration(previous,'original',mockStorage);
+  check('استعادة لقطة التخزين والتحقق من تطابقها حرفيًا',mockStorage.value==='original','يُقارن النص المستعاد بالنص الأصلي');
+ }catch(migrationTestError){check('اختبارات ترحيل وحدة المبالغ',false,String(migrationTestError&&migrationTestError.message||migrationTestError));}
  let shapeAccepted=false,shapeRejected=false;try{validateLoadedDataShape(fresh());shapeAccepted=true;}catch(e){}try{validateLoadedDataShape({...fresh(),wallets:null});}catch(e){shapeRejected=true;}check('التحقق من بنية البيانات عند بدء التشغيل',shapeAccepted&&shapeRejected,'تُقبل البنية المكتملة وتُحجب البيانات ذات المجموعة المفقودة أو غير الصالحة');
  let backupSizeWithinLimit=false,backupSizeOverLimitRejected=false;try{backupSizeWithinLimit=ensureBackupSize('abc','اختبار',3)==='abc';}catch(e){}try{ensureBackupSize('abcd','اختبار',3);}catch(e){backupSizeOverLimitRejected=String(e.message).includes('يتجاوز الحد المسموح');}check('رفض النسخة الاحتياطية التي تتجاوز حد الحجم',backupSizeWithinLimit&&backupSizeOverLimitRejected,'فحص حجم البايتات UTF-8 يطبق على النسخة ونقطة الرجوع قبل التنزيل');
  const hostileError='<img src=x onerror=alert(1)>&"';const escapedError=esc(hostileError);check('ترميز رسالة خطأ حماية البيانات قبل إدراجها في HTML',escapedError==='&lt;img src=x onerror=alert(1)&gt;&amp;&quot;','تُعرض رسالة الخطأ كنص ولا تتحول إلى عنصر HTML أو حدث قابل للتنفيذ');
@@ -1508,7 +1538,15 @@ function downloadOriginalMoneyData(){
  try{const raw=localStorage.getItem(KEY);if(!raw)throw new Error('لا توجد بيانات محفوظة لتنزيلها.');const blob=new Blob([raw],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-قبل-تحويل-وحدة-المبالغ-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  catch(err){const m=document.getElementById('moneyMigrationMessage');if(m)m.textContent='تعذر تنزيل البيانات الأصلية: '+String(err&&err.message||err);}
 }
-function rollbackMoneyMigration(previous,priorRaw,storage=localStorage){data=previous;committedDataSnapshot=JSON.parse(JSON.stringify(previous));dirty=false;storage.setItem(KEY,priorRaw);return true;}
+function rollbackMoneyMigration(previous,priorRaw,storage=localStorage){
+ if(typeof priorRaw!=='string')throw new Error('لقطة التخزين الأصلية غير صالحة.');
+ data=JSON.parse(JSON.stringify(previous));
+ committedDataSnapshot=JSON.parse(JSON.stringify(previous));
+ dirty=false;
+ storage.setItem(KEY,priorRaw);
+ if(storage.getItem(KEY)!==priorRaw)throw new Error('تعذر التحقق من استعادة النص الأصلي للتخزين.');
+ return true;
+}
 function approveMoneyMigration(){
  const msg=document.getElementById('moneyMigrationMessage');
  if(dataLoadBlocked){if(msg)msg.textContent='تعذر التحقق من بنية البيانات؛ لا يمكن إجراء تحويل آلي.';return;}
