@@ -89,6 +89,14 @@ function nextEventTimestamp(){
  return new Date(lastEventTimestamp).toISOString();
 }
 // توحيد التخزين النقدي بوحدات الفلس الصحيحة (1 دينار = 1000 فلس).
+function clearConfirmedTestFinancialRecords(target){
+ if(!target||typeof target!=='object')throw new Error('بيانات التنظيف غير صالحة.');
+ const collections=['transactions','transfers','debts','payments','journalEntries','audit'];
+ collections.forEach(key=>{if(!Array.isArray(target[key]))throw new Error('مجموعة سجلات الاختبار غير صالحة: '+key);});
+ collections.forEach(key=>{target[key]=[];});
+ target.journalValidation=null;
+ return target;
+}
 function ensureMoneyInFils(target){
  if(!target||typeof target!=='object')throw new Error('بيانات الترحيل غير صالحة.');
  if(target.moneyUnit==='fils')return target;
@@ -1095,6 +1103,9 @@ async function runBackupSelfTests(){
   const migrationValues=[fixture.wallets[0].opening,fixture.transactions[0].amount,fixture.transfers[0].amount,fixture.debts[0].amount,fixture.payments[0].amount];
   check('تحويل مجموعات المبالغ الخمس إلى الفلس بدقة',migrationValues.join(',')==='1000,12600,20600,115000,35000'&&fixture.moneyUnit==='fils','الأرصدة الافتتاحية والمعاملات والتحويلات والذمم والدفعات');
   const legacySettlement={wallets:[{id:'legacy-wallet',opening:0}],transactions:[{id:'legacy-settlement',type:'debt_collection',amount:2,walletId:'legacy-wallet',debtId:'legacy-debt',date:'2026-01-01'}],transfers:[],debts:[{id:'legacy-debt',type:'receivable',person:'اختبار ترحيل تسوية',amount:5,walletId:'legacy-wallet',date:'2026-01-01'}],payments:[]};
+  const testCleanup={wallets:[{id:'keep-wallet',opening:12}],accounts:[{id:'keep-account',name:'يبقى'}],settings:{currencyCode:'JOD'},transactions:[{id:'test-tx'}],transfers:[{id:'test-transfer'}],debts:[{id:'test-debt'}],payments:[{id:'test-payment'}],journalEntries:[{id:'test-entry'}],journalValidation:{ok:false},audit:[{id:'test-audit'}]};
+  clearConfirmedTestFinancialRecords(testCleanup);
+  check('تنظيف السجلات الاختبارية مع إبقاء المحافظ والحسابات والإعدادات',testCleanup.transactions.length===0&&testCleanup.transfers.length===0&&testCleanup.debts.length===0&&testCleanup.payments.length===0&&testCleanup.journalEntries.length===0&&testCleanup.audit.length===0&&testCleanup.journalValidation===null&&testCleanup.wallets[0].opening===12&&testCleanup.accounts[0].id==='keep-account'&&testCleanup.settings.currencyCode==='JOD','المسح يقتصر على المجموعات المالية المؤكدة للاختبار');
   ensureMoneyInFils(legacySettlement);
   const legacyTx=legacySettlement.transactions[0],legacyValidation=validateTransactionReferences(legacyTx,legacySettlement);
   check('ترحيل مرجع تسوية قديم من debtId إلى مجموعة الذمم',!legacyTx.debtId&&legacyTx.debtGroupKey===debtGroupKey(legacySettlement.debts[0])&&legacyValidation.length===0,'يُشتق الربط من سجل ذمة موجود ونشط ومن النوع المطابق فقط');
@@ -1591,7 +1602,7 @@ function approveMoneyMigration(){
   moneyMigrationCommitInProgress=true;
   try{
    // المستخدم أكد أن البيانات المالية القديمة سجلات اختبار. بعد حفظ نسخة أصلية مستقلة، أزل السجلات الاختبارية فقط مع إبقاء المحافظ والحسابات والإعدادات.
-   data.transactions=[];data.transfers=[];data.debts=[];data.payments=[];data.journalEntries=[];data.journalValidation=null;data.audit=[];
+   clearConfirmedTestFinancialRecords(data);
    ensureMoneyInFils(data);save();
   }
   catch(err){
