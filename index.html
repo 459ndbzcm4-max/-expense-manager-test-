@@ -1086,12 +1086,13 @@ async function runBackupSelfTests(){
   check('رفض تجاوز النطاق العددي الآمن عند التحويل',unsafeRejected,'يُرفض تجاوز Number.MAX_SAFE_INTEGER');
   let malformedRejected=false;try{ensureMoneyInFils({wallets:null,transactions:[],transfers:[],debts:[],payments:[]});}catch(e){malformedRejected=true;}
   check('رفض المجموعة المالية المفقودة أو غير الصالحة',malformedRejected,'لا يتم تجاوز مجموعة دون تحويلها');
-  const mockStorage={value:'original',getItem(){return this.value;},setItem(k,v){this.value=v;}};
+  const mockStorage={value:'original',writes:0,getItem(){return this.value;},setItem(k,v){this.writes++;this.value=v;}};
   const migrationTestData=data,migrationTestDirty=dirty,migrationTestCommitted=committedDataSnapshot;
   const previous={version:2,wallets:[],transactions:[],transfers:[],debts:[],payments:[]};
-  let rollbackVerified=false;try{mockStorage.value='changed';rollbackMoneyMigration(previous,'original',mockStorage);rollbackVerified=mockStorage.value==='original';}
+  let rollbackVerified=false,unchangedOriginalNotRewritten=false;try{mockStorage.value='changed';rollbackMoneyMigration(previous,'original',mockStorage);rollbackVerified=mockStorage.value==='original';const fullStorage={value:'original',getItem(){return this.value;},setItem(){throw new Error('QuotaExceededError');}};rollbackMoneyMigration(previous,'original',fullStorage);unchangedOriginalNotRewritten=fullStorage.value==='original';}
   finally{data=migrationTestData;dirty=migrationTestDirty;committedDataSnapshot=migrationTestCommitted;}
-  check('استعادة لقطة التخزين والتحقق من تطابقها حرفيًا',rollbackVerified,'يُقارن النص المستعاد بالأصل مع عزل الاختبار عن حالة التطبيق');
+  check('استعادة لقطة التخزين والتحقق من تطابقها حرفيًا',rollbackVerified,'تُستعاد اللقطة عند اختلاف المفتاح ثم يُتحقق من النص حرفيًا');
+  check('عدم إعادة كتابة النسخة الأصلية إذا كانت محفوظة بالفعل',unchangedOriginalNotRewritten,'يتجنب التراجع كتابة غير لازمة قد تفشل بسبب امتلاء localStorage');
  }catch(migrationTestError){check('اختبارات ترحيل وحدة المبالغ',false,String(migrationTestError&&migrationTestError.message||migrationTestError));}
  let shapeAccepted=false,shapeRejected=false;try{validateLoadedDataShape(fresh());shapeAccepted=true;}catch(e){}try{validateLoadedDataShape({...fresh(),wallets:null});}catch(e){shapeRejected=true;}check('التحقق من بنية البيانات عند بدء التشغيل',shapeAccepted&&shapeRejected,'تُقبل البنية المكتملة وتُحجب البيانات ذات المجموعة المفقودة أو غير الصالحة');
  let backupSizeWithinLimit=false,backupSizeOverLimitRejected=false;try{backupSizeWithinLimit=ensureBackupSize('abc','اختبار',3)==='abc';}catch(e){}try{ensureBackupSize('abcd','اختبار',3);}catch(e){backupSizeOverLimitRejected=String(e.message).includes('يتجاوز الحد المسموح');}check('رفض النسخة الاحتياطية التي تتجاوز حد الحجم',backupSizeWithinLimit&&backupSizeOverLimitRejected,'فحص حجم البايتات UTF-8 يطبق على النسخة ونقطة الرجوع قبل التنزيل');
@@ -1543,11 +1544,14 @@ function downloadOriginalMoneyData(){
 }
 function rollbackMoneyMigration(previous,priorRaw,storage=localStorage){
  if(typeof priorRaw!=='string')throw new Error('لقطة التخزين الأصلية غير صالحة.');
+ // قد يكون setItem الخاص بالحفظ قد فشل قبل أن يغيّر المفتاح؛ لا نكتب فوق الأصل بلا حاجة.
+ if(storage.getItem(KEY)!==priorRaw){
+  storage.setItem(KEY,priorRaw);
+  if(storage.getItem(KEY)!==priorRaw)throw new Error('تعذر التحقق من استعادة النص الأصلي للتخزين.');
+ }
  data=JSON.parse(JSON.stringify(previous));
  committedDataSnapshot=JSON.parse(JSON.stringify(previous));
  dirty=false;
- storage.setItem(KEY,priorRaw);
- if(storage.getItem(KEY)!==priorRaw)throw new Error('تعذر التحقق من استعادة النص الأصلي للتخزين.');
  return true;
 }
 function approveMoneyMigration(){
