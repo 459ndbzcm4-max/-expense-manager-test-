@@ -1148,7 +1148,8 @@ async function runBackupSelfTests(){
   let missingRollbackCollectionRejected=false;try{const incompleteRollback=basePayload();delete incompleteRollback.audit;await rollbackSnapshotBackup(JSON.stringify(incompleteRollback));}catch(e){missingRollbackCollectionRejected=true;}check('رفض تنزيل نقطة رجوع تفتقد مجموعة التدقيق',missingRollbackCollectionRejected,'كل مجموعات الإصدار الحالي مطلوبة في ملف الاستعادة');
   let duplicateRollbackIdRejected=false;try{const duplicateRollback=basePayload();duplicateRollback.wallets=[{id:'same-rollback-id',name:'أ',opening:0},{id:'same-rollback-id',name:'ب',opening:0}];await rollbackSnapshotBackup(JSON.stringify(duplicateRollback));}catch(e){duplicateRollbackIdRejected=true;}check('رفض تنزيل نقطة رجوع ذات معرّفات مكررة',duplicateRollbackIdRejected,'لا تُصدّر نقطة رجوع لا يمكن استيرادها بأمان');
   let invalidRollbackTimelineRejected=false;try{const invalidRollback=basePayload();invalidRollback.wallets=[{id:'rollback-invalid-wallet',name:'محفظة',opening:100,created:'2026-01-01'}];invalidRollback.accounts=[{id:'rollback-invalid-expense',name:'مصروف',type:'expense'}];invalidRollback.transactions=[{id:'rollback-invalid-tx',type:'expense',amount:200,walletId:'rollback-invalid-wallet',accountId:'rollback-invalid-expense',date:'2026-01-02'}];await rollbackSnapshotBackup(JSON.stringify(invalidRollback));}catch(e){invalidRollbackTimelineRejected=true;}check('رفض تنزيل نقطة رجوع ينتج عنها رصيد محفظة سالب',invalidRollbackTimelineRejected,'يجب ألا يُصدّر ملف استعادة لا يجتاز فحص التسلسل النقدي');
-  const rollbackLookupStore=entries=>{const values=new Map(entries);return {getItem:k=>values.has(k)?values.get(k):null,get length(){return values.size;},key:i=>Array.from(values.keys())[i]};};const legacySnapshot=getRollbackSnapshot(rollbackLookupStore([[KEY+'.rollback.100','older'],[KEY+'.rollback.200','newer']]));check('اختيار أحدث نقطة رجوع قديمة دون حذف النسخ الأخرى',!!legacySnapshot&&legacySnapshot.raw==='newer','تُقرأ النقطة ذات الطابع الزمني الأحدث وتبقى المفاتيح القديمة دون تعديل');const preferredSnapshot=getRollbackSnapshot(rollbackLookupStore([[KEY+'.rollback.999','legacy-newer'],[ROLLBACK_KEY,'stable-latest']]));check('تفضيل نقطة الرجوع الموحدة الجديدة',!!preferredSnapshot&&preferredSnapshot.raw==='stable-latest','تُستخدم نقطة الرجوع الموحدة بدل استبدالها بنسخة قديمة');
+  const rollbackLookupStore=entries=>{const values=new Map(entries);return {getItem:k=>values.has(k)?values.get(k):null,get length(){return values.size;},key:i=>Array.from(values.keys())[i]};};const legacySnapshot=getRollbackSnapshot(rollbackLookupStore([[KEY+'.rollback.100','older'],[KEY+'.rollback.200','newer']]));check('اختيار أحدث نقطة رجوع قديمة دون حذف النسخ الأخرى',!!legacySnapshot&&legacySnapshot.raw==='newer','تُقرأ النقطة ذات الطابع الزمني الأحدث وتبقى المفاتيح القديمة دون تعديل');
+  let fallbackSnapshotChosen=false;try{const picked=await chooseValidRollbackSnapshot([{key:'latest',raw:'invalid-json'},{key:'older',raw:'valid-snapshot'}],async raw=>{if(raw!=='valid-snapshot')throw new Error('bad snapshot');return 'verified-file';});fallbackSnapshotChosen=picked.snapshot.key==='older'&&picked.index===1&&picked.content==='verified-file';}catch(e){}check('اختيار نقطة رجوع أقدم إذا فشل التحقق من الأحدث',fallbackSnapshotChosen,'يجري التحقق من صلاحية المحتوى قبل اعتماد النقطة للتنزيل');const preferredSnapshot=getRollbackSnapshot(rollbackLookupStore([[KEY+'.rollback.999','legacy-newer'],[ROLLBACK_KEY,'stable-latest']]));check('تفضيل نقطة الرجوع الموحدة الجديدة',!!preferredSnapshot&&preferredSnapshot.raw==='stable-latest','تُستخدم نقطة الرجوع الموحدة بدل استبدالها بنسخة قديمة');
    const testStorage=()=>{const values=new Map([[KEY,'prior-raw'],[KEY+'.rollback.test','rollback-raw']]);return {values,getItem:k=>values.has(k)?values.get(k):null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k)};};
    const failingStore=()=>{const values=new Map([[KEY,'incoming-raw'],[KEY+'.rollback.test','prior-raw']]);return {values,getItem:k=>values.has(k)?values.get(k):null,setItem:(k,v)=>{if(k===KEY)throw new Error('quota exceeded');values.set(k,String(v));},removeItem:k=>values.delete(k)};};
   const priorTestData={wallets:[{id:'prior'}]},activeTestData={wallets:[{id:'incoming'}]},store1=testStorage();data=activeTestData;dirty=true;let redrawMerge=false,mergeRollbackOk=false;try{rollbackImportedState(priorTestData,false,'prior-raw',null,store1,()=>{redrawMerge=true;});mergeRollbackOk=data===priorTestData&&!dirty&&store1.getItem(KEY)==='prior-raw'&&redrawMerge;}catch(e){}check('إرجاع حالة الدمج السابقة وإعادة رسمها بعد الفشل',mergeRollbackOk,'تُستعاد الذاكرة والتخزين والواجهة قبل إظهار الخطأ');
@@ -1375,6 +1376,21 @@ function rollbackImportedState(priorData,priorDirty,priorRaw,rollbackKey,storage
  if(rollbackKey){try{storage.removeItem(rollbackKey);}catch(cleanupError){}}
  return true;
 }
+function getRollbackSnapshots(storage=localStorage){
+ try{
+  const snapshots=[],seen=new Set(),latest=storage.getItem(ROLLBACK_KEY);
+  if(latest!==null){snapshots.push({key:ROLLBACK_KEY,raw:latest});seen.add(ROLLBACK_KEY);}
+  const keys=[];for(let i=0;i<storage.length;i++){const key=storage.key(i);if(key&&key.startsWith(KEY+'.rollback.')&&!seen.has(key)&&Number.isSafeInteger(Number(key.slice((KEY+'.rollback.').length)))&&Number(key.slice((KEY+'.rollback.').length))>0)keys.push(key);}
+  keys.sort((a,b)=>Number(b.slice((KEY+'.rollback.').length))-Number(a.slice((KEY+'.rollback.').length)));
+  for(const key of keys){const raw=storage.getItem(key);if(raw!==null)snapshots.push({key,raw});}
+  return snapshots;
+ }catch(err){throw new Error('تعذر قراءة نقاط الرجوع المحلية: '+String(err&&err.message||err));}
+}
+async function chooseValidRollbackSnapshot(snapshots,validator){
+ let lastError=null;
+ for(let i=0;i<snapshots.length;i++){try{return {snapshot:snapshots[i],content:await validator(snapshots[i].raw),index:i};}catch(err){lastError=err;}}
+ throw new Error('لم توجد نقطة رجوع قابلة للاستعادة. '+String(lastError&&lastError.message||''));
+}
 function getRollbackSnapshot(storage=localStorage){
  try{
   const latest=storage.getItem(ROLLBACK_KEY);
@@ -1393,7 +1409,7 @@ async function rollbackSnapshotBackup(raw){
  const envelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt:new Date().toISOString(),checksum:await sha256Hex(JSON.stringify(payload)),payload};return ensureBackupSize(JSON.stringify(envelope,null,2),'نقطة الرجوع المحلية');
 }
 async function downloadRollbackSnapshot(){
- try{const snapshot=getRollbackSnapshot();if(!snapshot)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');const content=await rollbackSnapshotBackup(snapshot.raw),blob=new Blob([content],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('backupStatus').textContent='تم تنزيل نقطة الرجوع بصيغة موثقة قابلة للفحص والاستعادة. احتفظ بها في تطبيق «الملفات».';}
+ try{const snapshots=getRollbackSnapshots();if(!snapshots.length)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');const selected=await chooseValidRollbackSnapshot(snapshots,rollbackSnapshotBackup),content=selected.content,blob=new Blob([content],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('backupStatus').textContent=selected.index===0?'تم تنزيل نقطة الرجوع بصيغة موثقة قابلة للفحص والاستعادة. احتفظ بها في تطبيق «الملفات».':'تعذر اعتماد أحدث نقطة رجوع؛ تم تنزيل نسخة أقدم اجتازت التحقق. احتفظ بها في تطبيق «الملفات».';
  catch(err){$('backupStatus').textContent=String(err&&err.message||err);alert(err.message);}
 }
 $('downloadRollback').addEventListener('click',downloadRollbackSnapshot);
