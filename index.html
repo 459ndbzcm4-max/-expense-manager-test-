@@ -1086,9 +1086,11 @@ async function runBackupSelfTests(){
   let malformedRejected=false;try{ensureMoneyInFils({wallets:null,transactions:[],transfers:[],debts:[],payments:[]});}catch(e){malformedRejected=true;}
   check('رفض المجموعة المالية المفقودة أو غير الصالحة',malformedRejected,'لا يتم تجاوز مجموعة دون تحويلها');
   const mockStorage={value:'original',getItem(){return this.value;},setItem(k,v){this.value=v;}};
+  const migrationTestData=data,migrationTestDirty=dirty,migrationTestCommitted=committedDataSnapshot;
   const previous={version:2,wallets:[],transactions:[],transfers:[],debts:[],payments:[]};
-  mockStorage.value='changed';rollbackMoneyMigration(previous,'original',mockStorage);
-  check('استعادة لقطة التخزين والتحقق من تطابقها حرفيًا',mockStorage.value==='original','يُقارن النص المستعاد بالنص الأصلي');
+  let rollbackVerified=false;try{mockStorage.value='changed';rollbackMoneyMigration(previous,'original',mockStorage);rollbackVerified=mockStorage.value==='original';}
+  finally{data=migrationTestData;dirty=migrationTestDirty;committedDataSnapshot=migrationTestCommitted;}
+  check('استعادة لقطة التخزين والتحقق من تطابقها حرفيًا',rollbackVerified,'يُقارن النص المستعاد بالأصل مع عزل الاختبار عن حالة التطبيق');
  }catch(migrationTestError){check('اختبارات ترحيل وحدة المبالغ',false,String(migrationTestError&&migrationTestError.message||migrationTestError));}
  let shapeAccepted=false,shapeRejected=false;try{validateLoadedDataShape(fresh());shapeAccepted=true;}catch(e){}try{validateLoadedDataShape({...fresh(),wallets:null});}catch(e){shapeRejected=true;}check('التحقق من بنية البيانات عند بدء التشغيل',shapeAccepted&&shapeRejected,'تُقبل البنية المكتملة وتُحجب البيانات ذات المجموعة المفقودة أو غير الصالحة');
  let backupSizeWithinLimit=false,backupSizeOverLimitRejected=false;try{backupSizeWithinLimit=ensureBackupSize('abc','اختبار',3)==='abc';}catch(e){}try{ensureBackupSize('abcd','اختبار',3);}catch(e){backupSizeOverLimitRejected=String(e.message).includes('يتجاوز الحد المسموح');}check('رفض النسخة الاحتياطية التي تتجاوز حد الحجم',backupSizeWithinLimit&&backupSizeOverLimitRejected,'فحص حجم البايتات UTF-8 يطبق على النسخة ونقطة الرجوع قبل التنزيل');
