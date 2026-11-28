@@ -1409,8 +1409,17 @@ async function rollbackSnapshotBackup(raw){
  const envelope={format:BACKUP_FORMAT,schemaVersion:BACKUP_SCHEMA,createdAt:new Date().toISOString(),checksum:await sha256Hex(JSON.stringify(payload)),payload};return ensureBackupSize(JSON.stringify(envelope,null,2),'نقطة الرجوع المحلية');
 }
 async function downloadRollbackSnapshot(){
- try{const snapshots=getRollbackSnapshots();if(!snapshots.length)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');const selected=await chooseValidRollbackSnapshot(snapshots,rollbackSnapshotBackup),content=selected.content,blob=new Blob([content],{type:'application/json;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('backupStatus').textContent=selected.index===0?'تم تنزيل نقطة الرجوع بصيغة موثقة قابلة للفحص والاستعادة. احتفظ بها في تطبيق «الملفات».':'تعذر اعتماد أحدث نقطة رجوع؛ تم تنزيل نسخة أقدم اجتازت التحقق. احتفظ بها في تطبيق «الملفات».';}
- catch(err){$('backupStatus').textContent=String(err&&err.message||err);alert(err.message);}
+ let url=null,a=null,downloadStarted=false;
+ try{
+  const snapshots=getRollbackSnapshots();if(!snapshots.length)throw new Error('لا توجد نقطة رجوع محلية محفوظة.');
+  const selected=await chooseValidRollbackSnapshot(snapshots,rollbackSnapshotBackup),content=selected.content,blob=new Blob([content],{type:'application/json;charset=utf-8'});
+  url=URL.createObjectURL(blob);a=document.createElement('a');a.href=url;a.download='مدير-المصاريف-نقطة-رجوع-'+today()+'.json';a.style.display='none';document.body.appendChild(a);a.click();downloadStarted=true;
+  $('backupStatus').textContent=selected.index===0?'تم تجهيز نقطة الرجوع الموثقة وبدء تنزيلها. احتفظ بالملف في تطبيق «الملفات».':'تعذر اعتماد أحدث نقطة رجوع؛ تم تجهيز نسخة أقدم اجتازت التحقق وبدء تنزيلها. احتفظ بالملف في تطبيق «الملفات».';
+ }catch(err){$('backupStatus').textContent=(downloadStarted?'بدأ التنزيل، لكن تعذر إكمال بعض خطواته: ':'تعذر تجهيز تنزيل نقطة الرجوع: ')+String(err&&err.message||err);alert(String(err&&err.message||err));}
+ finally{
+  if(a&&a.parentNode){try{a.parentNode.removeChild(a);}catch(cleanupError){}}
+  if(url){const revoke=()=>{try{URL.revokeObjectURL(url);}catch(revokeError){}};try{setTimeout(revoke,1000);}catch(timerError){revoke();}}
+ }
 }
 $('downloadRollback').addEventListener('click',downloadRollbackSnapshot);
 $('importFile').addEventListener('change',async e=>{const file=e.target.files&&e.target.files[0];if(!file)return;try{
