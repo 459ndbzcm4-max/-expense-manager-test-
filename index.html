@@ -937,8 +937,7 @@ $('txDate').value=today();$('transferDate').value=today();$('debtDate').value=to
  $('resetToDefault').addEventListener('click',async()=>{
  if(dataLoadBlocked)return alert('تعذر قراءة البيانات المحلية؛ أُوقف المسح حفاظًا على البيانات.');
  if(!confirm('سيُحذف من هذا الجهاز كل ما يلي: المحافظ والحسابات والمعاملات والتحويلات والذمم والسداد والقيود وسجل التدقيق. ستعود إعدادات العملة والأرقام إلى الوضع الافتراضي.'))return;
- const phrase=prompt('للتأكيد اكتب العبارة كما هي: إعادة ضبط');
- if(phrase!=='إعادة ضبط')return alert('لم تُنفّذ إعادة الضبط؛ عبارة التأكيد غير مطابقة.');
+ if(!confirm('تأكيد نهائي: هل تريد حذف المحافظ والحسابات والسجلات المالية من هذا الجهاز وإعادة التطبيق إلى الوضع الافتراضي؟ ستُنزّل نسخة احتياطية قبل الحذف.'))return;
  let priorRaw;
  try{priorRaw=localStorage.getItem(KEY);}catch(err){return alert('تعذر قراءة البيانات الحالية؛ لم يُنفّذ المسح. '+String(err&&err.message||err));}
  let backupContent;
