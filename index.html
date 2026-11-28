@@ -98,7 +98,8 @@ function ensureMoneyInFils(target){
   target[collection].forEach((item,index)=>{
    if(!item||typeof item!=='object')throw new Error('سجل مالي غير صالح: '+collection+'['+index+'].');
    if(item[field]===undefined||item[field]===null){if(optional)return;throw new Error('مبلغ مفقود: '+collection+'['+index+'].');}
-   if(typeof item[field]==='boolean'||item[field]==='')throw new Error('مبلغ غير صالح: '+collection+'['+index+'].');
+   if(typeof item[field]!=='number'&&typeof item[field]!=='string')throw new Error('نوع المبلغ غير صالح: '+collection+'['+index+'].');
+   if(typeof item[field]==='string'&&item[field].trim()==='')throw new Error('مبلغ غير صالح: '+collection+'['+index+'].');
    const value=Number(item[field]),scaled=value*1000,rounded=Math.round(scaled);
    if(!Number.isFinite(value)||!Number.isSafeInteger(rounded)||Math.abs(scaled-rounded)>1e-7)throw new Error('المبلغ لا يمكن تحويله بدقة إلى فلس أو يتجاوز النطاق الآمن: '+collection+'['+index+'].');
    item[field]=rounded;
