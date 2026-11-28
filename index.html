@@ -89,6 +89,14 @@ function nextEventTimestamp(){
  return new Date(lastEventTimestamp).toISOString();
 }
 // توحيد التخزين النقدي بوحدات الفلس الصحيحة (1 دينار = 1000 فلس).
+function clearConfirmedTestFinancialRecords(target){
+ if(!target||typeof target!=='object')throw new Error('بيانات التنظيف غير صالحة.');
+ const collections=['transactions','transfers','debts','payments','journalEntries','audit'];
+ collections.forEach(key=>{if(!Array.isArray(target[key]))throw new Error('مجموعة سجلات الاختبار غير صالحة: '+key);});
+ collections.forEach(key=>{target[key]=[];});
+ target.journalValidation=null;
+ return target;
+}
 function ensureMoneyInFils(target){
  if(!target||typeof target!=='object')throw new Error('بيانات الترحيل غير صالحة.');
  if(target.moneyUnit==='fils')return target;
@@ -104,6 +112,22 @@ function ensureMoneyInFils(target){
    if(!Number.isFinite(value)||!Number.isSafeInteger(rounded)||Math.abs(scaled-rounded)>1e-7)throw new Error('المبلغ لا يمكن تحويله بدقة إلى فلس أو يتجاوز النطاق الآمن: '+collection+'['+index+'].');
    item[field]=rounded;
   });
+ });
+ // ترحيل مرجع التسوية القديم: بعض النسخ السابقة خزّنت debtId الفردي بدل debtGroupKey.
+ // نربط الحركة بالمجموعة المحاسبية المستنتجة من سجل الذمة الموجود، ولا نخمن إذا كان المرجع مفقودًا أو نوعه متعارضًا.
+ if(!Array.isArray(target.debts)||!Array.isArray(target.transactions))throw new Error('تعذر التحقق من مراجع تسويات الذمم القديمة.');
+ target.transactions.forEach((t,index)=>{
+  if(!t||!['debt_collection','debt_repayment'].includes(t.type))return;
+  const expected=t.type==='debt_collection'?'receivable':'payable';
+  if(t.debtId){
+   const linked=target.debts.find(d=>d&&d.id===t.debtId);
+   if(!linked||linked.type!==expected||!isFinancialActive(linked))throw new Error('مرجع تسوية قديم غير صالح أو لا يطابق نوع الذمة: '+(t.id||('transactions['+index+']')));
+   t.debtGroupKey=debtGroupKey(linked);
+   delete t.debtId;
+  }
+  const key=String(t.debtGroupKey||'');
+  const validGroup=target.debts.some(d=>d&&debtGroupKey(d)===key&&d.type===expected&&isFinancialActive(d));
+  if(!validGroup)throw new Error('تعذر ربط حركة التسوية بمجموعة ذمم نشطة من النوع الصحيح: '+(t.id||('transactions['+index+']')));
  });
  target.moneyUnit='fils';return target;
 }
@@ -1078,6 +1102,13 @@ async function runBackupSelfTests(){
   ensureMoneyInFils(fixture);
   const migrationValues=[fixture.wallets[0].opening,fixture.transactions[0].amount,fixture.transfers[0].amount,fixture.debts[0].amount,fixture.payments[0].amount];
   check('تحويل مجموعات المبالغ الخمس إلى الفلس بدقة',migrationValues.join(',')==='1000,12600,20600,115000,35000'&&fixture.moneyUnit==='fils','الأرصدة الافتتاحية والمعاملات والتحويلات والذمم والدفعات');
+  const legacySettlement={wallets:[{id:'legacy-wallet',opening:0}],transactions:[{id:'legacy-settlement',type:'debt_collection',amount:2,walletId:'legacy-wallet',debtId:'legacy-debt',date:'2026-01-01'}],transfers:[],debts:[{id:'legacy-debt',type:'receivable',person:'اختبار ترحيل تسوية',amount:5,walletId:'legacy-wallet',date:'2026-01-01'}],payments:[]};
+  const testCleanup={wallets:[{id:'keep-wallet',opening:12}],accounts:[{id:'keep-account',name:'يبقى'}],settings:{currencyCode:'JOD'},transactions:[{id:'test-tx'}],transfers:[{id:'test-transfer'}],debts:[{id:'test-debt'}],payments:[{id:'test-payment'}],journalEntries:[{id:'test-entry'}],journalValidation:{ok:false},audit:[{id:'test-audit'}]};
+  clearConfirmedTestFinancialRecords(testCleanup);
+  check('تنظيف السجلات الاختبارية مع إبقاء المحافظ والحسابات والإعدادات',testCleanup.transactions.length===0&&testCleanup.transfers.length===0&&testCleanup.debts.length===0&&testCleanup.payments.length===0&&testCleanup.journalEntries.length===0&&testCleanup.audit.length===0&&testCleanup.journalValidation===null&&testCleanup.wallets[0].opening===12&&testCleanup.accounts[0].id==='keep-account'&&testCleanup.settings.currencyCode==='JOD','المسح يقتصر على المجموعات المالية المؤكدة للاختبار');
+  ensureMoneyInFils(legacySettlement);
+  const legacyTx=legacySettlement.transactions[0],legacyValidation=validateTransactionReferences(legacyTx,legacySettlement);
+  check('ترحيل مرجع تسوية قديم من debtId إلى مجموعة الذمم',!legacyTx.debtId&&legacyTx.debtGroupKey===debtGroupKey(legacySettlement.debts[0])&&legacyValidation.length===0,'يُشتق الربط من سجل ذمة موجود ونشط ومن النوع المطابق فقط');
   const once=JSON.stringify(fixture);ensureMoneyInFils(fixture);
   check('منع تكرار تحويل وحدة المبالغ',JSON.stringify(fixture)===once,'إعادة الاستدعاء لا تضاعف القيم');
   let precisionRejected=false;try{ensureMoneyInFils({wallets:[{opening:1.0001}],transactions:[],transfers:[],debts:[],payments:[]});}catch(e){precisionRejected=true;}
@@ -1528,7 +1559,7 @@ function showMoneyMigrationGate(){
   gate=document.createElement('div');gate.id='moneyMigrationGate';gate.setAttribute('role','dialog');gate.setAttribute('aria-modal','true');gate.setAttribute('aria-labelledby','moneyMigrationTitle');gate.tabIndex=-1;
   gate.style.cssText='position:fixed;inset:0;z-index:99999;background:#f3f6fa;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto';
   const blocked=dataLoadBlocked,canMigrate=moneyMigrationUnit===null||moneyMigrationUnit==='JOD';
-  gate.innerHTML='<div style="max-width:560px;background:#fff;border:1px solid #dce3ec;border-radius:16px;padding:20px;box-shadow:0 8px 32px #0002;font-family:Arial,Tahoma,sans-serif;line-height:1.8;color:#182230"><h2 id="moneyMigrationTitle" style="margin-top:0">'+(blocked?'تم إيقاف فتح البيانات حفاظًا عليها':'يلزم اعتماد تحويل وحدة المبالغ')+'</h2><p>'+(blocked?esc(dataLoadError):(!canMigrate?'وحدة المبالغ المسجلة غير معروفة أو غير مدعومة. أوقفنا التحويل التلقائي؛ نزّل البيانات الأصلية واطلب فحصها قبل المتابعة.':'تحتوي البيانات المحلية على سجلات لا تحمل علامة تؤكد أن المبالغ محفوظة بالفلس. التحويل المتوقع يفترض أن الأرقام الحالية بالدينار الأردني، ويحوّل كل مبلغ إلى الفلس (× 1000).'))+'</p>'+(blocked?'<p><strong>لم نفتح سجلًا فارغًا ولم نكتب فوق البيانات.</strong> نزّل البيانات الأصلية واحتفظ بها قبل أي محاولة استعادة.</p>':(!canMigrate?'<p><strong>لن نجري أي تحويل لأن وحدة المبالغ غير معروفة.</strong></p>':'<p><strong>لن يُجرى أي تعديل قبل موافقتك.</strong> عند الموافقة، تُحفظ نسخة أصلية مستقلة داخل تخزين المتصفح قبل التحويل. ويُنصح بتنزيل نسخة خارجية أيضًا.</p>'))+'<p id="moneyMigrationMessage" role="alert" aria-live="assertive" aria-atomic="true" style="color:#b42318"></p><div style="display:flex;gap:8px;flex-wrap:wrap">'+(blocked?'<button id="recoverFromBackup" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">استعادة نسخة احتياطية سليمة</button>':(!canMigrate?'':'<button id="approveMoneyMigration" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">حفظ نسخة أصلية واعتماد التحويل</button>'))+'<button id="downloadMoneyOriginal" style="border:1px solid #cbd5e1;border-radius:8px;padding:11px 16px;background:#fff;color:#182230;font-size:15px">تنزيل البيانات الأصلية</button></div><p style="font-size:12px;color:#667085">لن يمكن استخدام التطبيق قبل حسم سلامة البيانات ووحدة المبالغ.</p></div>';
+  gate.innerHTML='<div style="max-width:560px;background:#fff;border:1px solid #dce3ec;border-radius:16px;padding:20px;box-shadow:0 8px 32px #0002;font-family:Arial,Tahoma,sans-serif;line-height:1.8;color:#182230"><h2 id="moneyMigrationTitle" style="margin-top:0">'+(blocked?'تم إيقاف فتح البيانات حفاظًا عليها':'يلزم اعتماد تحويل وحدة المبالغ')+'</h2><p>'+(blocked?esc(dataLoadError):(!canMigrate?'وحدة المبالغ المسجلة غير معروفة أو غير مدعومة. أوقفنا التحويل التلقائي؛ نزّل البيانات الأصلية واطلب فحصها قبل المتابعة.':'تحتوي البيانات المحلية على سجلات لا تحمل علامة تؤكد أن المبالغ محفوظة بالفلس. التحويل المتوقع يفترض أن الأرقام الحالية بالدينار الأردني، ويحوّل كل مبلغ إلى الفلس (× 1000).'))+'</p>'+(blocked?'<p><strong>لم نفتح سجلًا فارغًا ولم نكتب فوق البيانات.</strong> نزّل البيانات الأصلية واحتفظ بها قبل أي محاولة استعادة.</p>':(!canMigrate?'<p><strong>لن نجري أي تحويل لأن وحدة المبالغ غير معروفة.</strong></p>':'<p><strong>لن يُجرى أي تعديل قبل موافقتك.</strong> عند الموافقة، تُحفظ نسخة أصلية مستقلة داخل تخزين المتصفح قبل التحويل. ويُنصح بتنزيل نسخة خارجية أيضًا.</p>'))+'<p id="moneyMigrationMessage" role="alert" aria-live="assertive" aria-atomic="true" style="color:#b42318"></p><div style="display:flex;gap:8px;flex-wrap:wrap">'+(blocked?'<button id="recoverFromBackup" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">استعادة نسخة احتياطية سليمة</button>':(!canMigrate?'':'<button id="approveMoneyMigration" style="border:0;border-radius:8px;padding:11px 16px;background:#175cd3;color:#fff;font-size:15px">حفظ نسخة أصلية وحذف السجلات الاختبارية واعتماد التحويل</button>'))+'<button id="downloadMoneyOriginal" style="border:1px solid #cbd5e1;border-radius:8px;padding:11px 16px;background:#fff;color:#182230;font-size:15px">تنزيل البيانات الأصلية</button></div><p style="font-size:12px;color:#667085">لن يمكن استخدام التطبيق قبل حسم سلامة البيانات ووحدة المبالغ.</p></div>';
   document.body.appendChild(gate);
   const approve=gate.querySelector('#approveMoneyMigration');if(approve)approve.addEventListener('click',approveMoneyMigration);
   const recover=gate.querySelector('#recoverFromBackup');if(recover)recover.addEventListener('click',()=>{importMode='replace';mergePickerRequested=false;const picker=document.getElementById('importFile');if(picker)picker.click();});
@@ -1569,7 +1600,11 @@ function approveMoneyMigration(){
   if(localStorage.getItem(snapshotKey)!==priorRaw)throw new Error('تعذر التحقق من حفظ النسخة الأصلية.');
   previous=JSON.parse(JSON.stringify(data));
   moneyMigrationCommitInProgress=true;
-  try{ensureMoneyInFils(data);save();}
+  try{
+   // المستخدم أكد أن البيانات المالية القديمة سجلات اختبار. بعد حفظ نسخة أصلية مستقلة، أزل السجلات الاختبارية فقط مع إبقاء المحافظ والحسابات والإعدادات.
+   clearConfirmedTestFinancialRecords(data);
+   ensureMoneyInFils(data);save();
+  }
   catch(err){
    try{rollbackMoneyMigration(previous,priorRaw);}
    catch(restoreErr){throw new Error('فشل التحويل وتعذر إرجاع التخزين إلى الحالة الأصلية. احتفظ بنسخة ما قبل التحويل من صفحة النسخ الاحتياطي. '+String(restoreErr&&restoreErr.message||restoreErr));}
