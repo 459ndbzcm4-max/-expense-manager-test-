@@ -1049,6 +1049,11 @@ function validateDebtRelations(candidate){
   if(!['receivable','payable'].includes(d.type))errors.push('نوع ذمة غير معروف: '+d.id);
   if(!String(d.person||'').trim())errors.push('اسم صاحب الذمة مفقود: '+d.id);
   if(!validAmount(d.amount))errors.push('مبلغ الذمة غير صالح: '+d.id);
+  if(d.installmentPlan){
+   const plan=d.installmentPlan,rows=plan&&plan.installments;
+   if(!plan||!['monthly','weekly'].includes(plan.frequency)||!Number.isInteger(plan.count)||plan.count<2||plan.count>120||!Array.isArray(rows)||rows.length!==plan.count||typeof plan.firstDue!=='string'||!/^\\d{4}-\\d{2}-\\d{2}$/.test(plan.firstDue))errors.push('خطة تقسيط الذمة غير مكتملة أو غير صالحة: '+d.id);
+   else{let sum=0,last='';rows.forEach((row,index)=>{if(!row||row.number!==index+1||!Number.isSafeInteger(Number(row.amount))||Number(row.amount)<=0||typeof row.due!=='string'||!/^\\d{4}-\\d{2}-\\d{2}$/.test(row.due)||row.due<=last)errors.push('دفعة تقسيط غير صالحة أو غير مرتبة: '+d.id);sum+=Number(row&&row.amount||0);last=String(row&&row.due||'');});if(sum!==Number(d.amount)||rows[0].due!==plan.firstDue)errors.push('مجموع خطة التقسيط أو أول تاريخ لا يطابق الذمة: '+d.id);}
+  }
   if(!opening&&!walletIds.has(d.walletId))errors.push('محفظة الذمة غير موجودة: '+d.id);
   const t=d.transactionId?txById.get(d.transactionId):null;
   if(opening){
