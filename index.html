@@ -105,6 +105,22 @@ function ensureMoneyInFils(target){
    item[field]=rounded;
   });
  });
+ // ترحيل مرجع التسوية القديم: بعض النسخ السابقة خزّنت debtId الفردي بدل debtGroupKey.
+ // نربط الحركة بالمجموعة المحاسبية المستنتجة من سجل الذمة الموجود، ولا نخمن إذا كان المرجع مفقودًا أو نوعه متعارضًا.
+ if(!Array.isArray(target.debts)||!Array.isArray(target.transactions))throw new Error('تعذر التحقق من مراجع تسويات الذمم القديمة.');
+ target.transactions.forEach((t,index)=>{
+  if(!t||!['debt_collection','debt_repayment'].includes(t.type))return;
+  const expected=t.type==='debt_collection'?'receivable':'payable';
+  if(t.debtId){
+   const linked=target.debts.find(d=>d&&d.id===t.debtId);
+   if(!linked||linked.type!==expected||!isFinancialActive(linked))throw new Error('مرجع تسوية قديم غير صالح أو لا يطابق نوع الذمة: '+(t.id||('transactions['+index+']')));
+   t.debtGroupKey=debtGroupKey(linked);
+   delete t.debtId;
+  }
+  const key=String(t.debtGroupKey||'');
+  const validGroup=target.debts.some(d=>d&&debtGroupKey(d)===key&&d.type===expected&&isFinancialActive(d));
+  if(!validGroup)throw new Error('تعذر ربط حركة التسوية بمجموعة ذمم نشطة من النوع الصحيح: '+(t.id||('transactions['+index+']')));
+ });
  target.moneyUnit='fils';return target;
 }
 // لا تُحوّل بيانات المستخدم عند فتح التطبيق؛ يتطلب ترحيل الوحدات موافقة صريحة ونسخة أصلية محفوظة.
@@ -1078,6 +1094,10 @@ async function runBackupSelfTests(){
   ensureMoneyInFils(fixture);
   const migrationValues=[fixture.wallets[0].opening,fixture.transactions[0].amount,fixture.transfers[0].amount,fixture.debts[0].amount,fixture.payments[0].amount];
   check('تحويل مجموعات المبالغ الخمس إلى الفلس بدقة',migrationValues.join(',')==='1000,12600,20600,115000,35000'&&fixture.moneyUnit==='fils','الأرصدة الافتتاحية والمعاملات والتحويلات والذمم والدفعات');
+  const legacySettlement={wallets:[{id:'legacy-wallet',opening:0}],transactions:[{id:'legacy-settlement',type:'debt_collection',amount:2,walletId:'legacy-wallet',debtId:'legacy-debt',date:'2026-01-01'}],transfers:[],debts:[{id:'legacy-debt',type:'receivable',person:'اختبار ترحيل تسوية',amount:5,walletId:'legacy-wallet',date:'2026-01-01'}],payments:[]};
+  ensureMoneyInFils(legacySettlement);
+  const legacyTx=legacySettlement.transactions[0],legacyValidation=validateTransactionReferences(legacyTx,legacySettlement);
+  check('ترحيل مرجع تسوية قديم من debtId إلى مجموعة الذمم',!legacyTx.debtId&&legacyTx.debtGroupKey===debtGroupKey(legacySettlement.debts[0])&&legacyValidation.length===0,'يُشتق الربط من سجل ذمة موجود ونشط ومن النوع المطابق فقط');
   const once=JSON.stringify(fixture);ensureMoneyInFils(fixture);
   check('منع تكرار تحويل وحدة المبالغ',JSON.stringify(fixture)===once,'إعادة الاستدعاء لا تضاعف القيم');
   let precisionRejected=false;try{ensureMoneyInFils({wallets:[{opening:1.0001}],transactions:[],transfers:[],debts:[],payments:[]});}catch(e){precisionRejected=true;}
