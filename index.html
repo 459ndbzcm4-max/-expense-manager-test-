@@ -92,12 +92,12 @@ function nextEventTimestamp(){
 function ensureMoneyInFils(target){
  if(!target||typeof target!=='object')throw new Error('بيانات الترحيل غير صالحة.');
  if(target.moneyUnit==='fils')return target;
- const fields=[['wallets','opening'],['transactions','amount'],['transfers','amount'],['debts','amount'],['payments','amount']];
- fields.forEach(([collection,field])=>{
+ const fields=[['wallets','opening',true],['transactions','amount',false],['transfers','amount',false],['debts','amount',false],['payments','amount',false]];
+ fields.forEach(([collection,field,optional])=>{
   if(!Array.isArray(target[collection]))throw new Error('مجموعة مالية مفقودة أو غير صالحة: '+collection);
   target[collection].forEach((item,index)=>{
    if(!item||typeof item!=='object')throw new Error('سجل مالي غير صالح: '+collection+'['+index+'].');
-   if(item[field]===undefined||item[field]===null)return;
+   if(item[field]===undefined||item[field]===null){if(optional)return;throw new Error('مبلغ مفقود: '+collection+'['+index+'].');}
    if(typeof item[field]==='boolean'||item[field]==='')throw new Error('مبلغ غير صالح: '+collection+'['+index+'].');
    const value=Number(item[field]),scaled=value*1000,rounded=Math.round(scaled);
    if(!Number.isFinite(value)||!Number.isSafeInteger(rounded)||Math.abs(scaled-rounded)>1e-7)throw new Error('المبلغ لا يمكن تحويله بدقة إلى فلس أو يتجاوز النطاق الآمن: '+collection+'['+index+'].');
